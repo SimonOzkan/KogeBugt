@@ -4,7 +4,7 @@
 # Definerer stier til Teams-mappen
 set_project_paths <- function() {
   # Tilpas stien til din lokale Teams-mappe
-  TEAMS_BASE <- "C:/Users/SIO/NIVA/Køge Bugt - General"  # Justér hvis nødvendigt
+  TEAMS_BASE <- "C:/Users/.../.../Køge Bugt - General"  
   
   paths <- list(
     input_ecosystem = file.path(TEAMS_BASE, "Data/Ecosystem"),
