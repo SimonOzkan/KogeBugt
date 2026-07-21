@@ -1,6 +1,4 @@
-# Cumulative Impact Assessment
-
-Projekt til analyse af samlede (kumulative) påvirkninger på udvalgte økosystemkomponenter fra en række presfaktorer, indenfor et defineret assessment area.
+# Samlede påvirkninger i Køge Bugt
 
 ## Opbygning af scripts
 
