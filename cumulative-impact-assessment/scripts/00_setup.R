@@ -16,7 +16,7 @@ lapply(required_packages, library, character.only = TRUE)
 source(here::here("config/paths.R"))
 PATHS <- set_project_paths()
 
-cat("✓ Setup complete. Use PATHS object for file paths.\n")
+cat("Setup complete. Use PATHS object for file paths.\n")
 
 
 

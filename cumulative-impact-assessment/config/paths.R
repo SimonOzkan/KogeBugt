@@ -2,29 +2,33 @@
 # Brug: paths <- set_project_paths()
 
 set_project_paths <- function() {
-  # ====================================================================
-  # TILPAS DENNE STI TIL DIN LOKALE TEAMS-MAPPE
-  # ====================================================================
-  # Windows eksempel:
+ 
+  # Windows team base:
   TEAMS_BASE <- "C:/Users/SIO/NIVA/Køge Bugt - General"
   
-  # Mac eksempel (fjern #):
-  # TEAMS_BASE <- "/Users/[username]/Library/CloudStorage/OneDrive-AarhusUniversitet/Teams/Køge Bugt - General"
+  # Mac eksempel:
+  # TEAMS_BASE <- "/Users/[username]/Library/.../.../Teams/Køge Bugt - General"
   
   # Opret liste med alle relevante stier
   paths <- list(
     # Input data fra Teams
     input_ecosystem = file.path(TEAMS_BASE, "Data/Ecosystem"),
     input_pressure = file.path(TEAMS_BASE, "Data/Pressure"),
+    input_assessment_area = file.path(TEAMS_BASE, "Data/Assessment_Area"),
     
-    # Output data til Teams (delt med kollegaer)
-    output = file.path(TEAMS_BASE, "Data/Outputs"),
+    # Output data til Teams 
+    output_ecosystem_tif = file.path(TEAMS_BASE, "Data/Outputs/EC_tif"),
+    output_pressure_tif = file.path(TEAMS_BASE, "Data/Outputs/Pressure_tif"),
     
-    # Lokale temp-files (IKKE delt, ignoreres af Git)
+    
+    output_ecosystem_png = file.path(TEAMS_BASE, "Data/Outputs/EC_png"),
+    output_pressure_png = file.path(TEAMS_BASE, "Data/Outputs/Pressure_png"),
+    
+    # Lokale temp-files 
     local_temp = here::here("outputs")
   )
   
-  # Tjek at Teams-mappen findes
+  # Tjek at Teams-mapperne findes
   if (!dir.exists(TEAMS_BASE)) {
     warning(paste("TEAMS_BASE eksisterer ikke:", TEAMS_BASE))
     warning("Opdater stien i config/paths.R")
@@ -34,7 +38,7 @@ set_project_paths <- function() {
   invisible(lapply(paths, function(p) {
     if (!dir.exists(p)) {
       dir.create(p, recursive = TRUE, showWarnings = FALSE)
-      cat("✓ Oprettet mappe:", p, "\n")
+      cat("Oprettet mappe:", p, "\n")
     }
   }))
   
