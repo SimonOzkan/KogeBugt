@@ -1,0 +1,13 @@
+# Lokale outputs (ikke i Git)
+outputs/*
+!outputs/.gitkeep
+
+# R-specifikke
+.Rhistory
+.RData
+.Rproj.user/
+.DS_Store
+
+# Midlertidige filer
+*.tmp
+*.log
