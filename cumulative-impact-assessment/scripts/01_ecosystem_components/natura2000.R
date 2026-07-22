@@ -50,7 +50,8 @@ natura2000_intersect <- st_intersection(natura2000_union,grid) %>%
 natura2000_area <-natura2000_intersect %>%
   mutate(area_natura = st_area(.)) %>%
   left_join(grid_area, by = "id" ) %>%
-  mutate(value = as.numeric(area_natura) / as.numeric(area_grid)) 
+  mutate(value = as.numeric(area_natura) / as.numeric(area_grid),
+         value = pmin(value, 1)) 
 
 
 # Konverter til raster
@@ -89,13 +90,15 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area,"/maps/Europe/Europe_mer
   st_transform(.,crs = target_crs)
 
 
+# Sætter baggrundskortet i.e. hvor "value/fraction" = 0 til samme farve 
+viridis_start_color <- viridis_pal()(1)  
+
 map_natura2000 <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = map_baltic_sea, fill = "white", color = NA, alpha = 0.5) +
+  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
+  geom_sf(data = map_baltic_sea, fill = viridis_start_color, color = NA, alpha = 1) +
   geom_sf(data = natura2000_area, 
           aes(fill = value), color = NA) +
-  # scale_fill_gradientn(colors = rainbow(7),name = "Natura 2000")+
-  scale_fill_viridis_c(name = "Natura 2000")+
+  scale_fill_viridis_c(name = "Natura 2000", limits = c(0,1))+
   coord_sf(
     crs  = 25832,
     xlim = c(696427, 775958),
