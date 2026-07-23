@@ -74,7 +74,7 @@ euseamap_koge <- euseamap_koge %>%
 
 # Gem shapefil til senere brug/QA
 st_write(euseamap_koge,
-         file.path(PATHS$output_ecosystem_shp, "\\Koge_bugt_seaMap.shp"),
+         file.path(PATHS$input_phys_chem_geo, "/euSeamap/Koge_bugt_seaMap.shp"),
          append = FALSE)
 
 
