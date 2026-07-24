@@ -27,6 +27,15 @@ ALAN_log_min <- terra::global(ALAN_log, "min", na.rm = TRUE)[1, 1]
 ALAN_log_max <- terra::global(ALAN_log, "max", na.rm = TRUE)[1, 1]
 ALAN_norm <- (ALAN_log - ALAN_log_min) / (ALAN_log_max - ALAN_log_min)
 
+## Lav rasterlag for normaliseret værdier
+
+terra::writeRaster(
+  ALAN_norm,
+  filename  = file.path(PATHS$output_pressure_tif, "ALAN_lognorm.tif"),
+  overwrite = TRUE
+)
+
+
 # lav til sf objekt for plotting
 ALAN_sf <- ALAN_norm %>%
   terra::as.polygons(dissolve = FALSE) %>%
@@ -48,6 +57,7 @@ viridis_start_color <- viridis_pal()(1)
 
 map_ALAN<- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
+  #geom_sf(data = map_baltic_sea, fill = viridis_start_color, color = NA, alpha = 1) +
   geom_sf(data = ALAN_sf,
           aes(fill = value), color = NA) +
   scale_fill_viridis_c(name = "Kunstigt lys", limits = c(0, 1)) +
