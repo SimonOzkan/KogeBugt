@@ -1,4 +1,4 @@
-#---------------------- Klapning (dumpning af opmudret materiale) -----------------
+#---------------------- Offshore vindmølleparker-----------------
 
 # Indlæs pakker og set path fra source setup fil
 source("scripts/00_setup.R")
