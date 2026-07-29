@@ -4,7 +4,7 @@
 # Install packages hvis de mangler
 required_packages <- c("terra","dplyr","sf","ggplot2", "tidyr", "purrr", "readr","readxl","patchwork", "raster","tidyterra",
                        "lubridate", "stringr", "forcats", "scales","sf","gridExtra","grid","lattice","ggpubr","gt","writexl",
-                       "ggspatial","httr")
+                       "ggspatial","httr","ows4R")
 
 new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 if(length(new_packages)) {
