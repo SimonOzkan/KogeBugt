@@ -61,8 +61,8 @@ north_arrow <-  annotation_north_arrow(
     location    = "br",
     which_north = "true",
     style       = north_arrow_fancy_orienteering(
-      fill = c("red","white"),
-      text_col = "white"
+      fill = c("black","white"),
+      text_col = "black"
     ),
     pad_x       = unit(3.5, "cm"),
     pad_y       = unit(1.0, "cm"),
@@ -74,8 +74,8 @@ scale_bar <-  annotation_scale(
     location   = "br",
     width_hint = 0.05,
     height     = unit(0.4, "cm"),
-    bar_cols   = c("red", "white"),
-    text_col = "white",
+    bar_cols   = c("black", "white"),
+    text_col = "black",
     pad_x      = unit(0.2, "cm"),
     pad_y      = unit(1.5, "cm"),
     text_cex   = 1.2
