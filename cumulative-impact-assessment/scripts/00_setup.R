@@ -35,7 +35,7 @@ color_viridis <- scale_fill_viridis_c(
   )
 ) 
 boundary <- coord_sf(
-    crs  = target_crs,
+    crs  = 25832,
     xlim = c(696427, 775958),
     ylim = c(6096053, 6179593),
     clip = "off"                         
