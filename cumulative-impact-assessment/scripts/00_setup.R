@@ -16,8 +16,7 @@ lapply(required_packages, library, character.only = TRUE)
 source(here::here("config/paths.R"))
 PATHS <- set_project_paths()
 
-cat("Setup complete. Use PATHS object for file paths.\n")
-
+viridis_start_color <- viridis_pal()(1)
 
 color_viridis <- scale_fill_viridis_c(
   name     = NULL,
@@ -80,3 +79,5 @@ scale_bar <-  annotation_scale(
     pad_y      = unit(1.5, "cm"),
     text_cex   = 1.2
   )
+
+cat("Setup complete. Use PATHS object for file paths.\n")
