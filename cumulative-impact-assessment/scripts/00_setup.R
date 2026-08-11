@@ -12,9 +12,7 @@ if(length(new_packages)) {
 }
 # Load packages
 lapply(required_packages, library, character.only = TRUE)
-# Load paths configuration
-source(here::here("config/paths.R"))
-PATHS <- set_project_paths()
+
 
 viridis_start_color <- viridis_pal()(1)
 
@@ -79,5 +77,9 @@ scale_bar <-  annotation_scale(
     pad_y      = unit(1.5, "cm"),
     text_cex   = 1.2
   )
+
+# Load paths configuration
+source(here::here("config/paths.R"))
+PATHS <- set_project_paths()
 
 cat("Setup complete. Use PATHS object for file paths.\n")
