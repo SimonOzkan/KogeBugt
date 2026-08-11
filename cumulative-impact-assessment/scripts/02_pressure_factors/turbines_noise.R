@@ -47,21 +47,22 @@ turbine_points_raw <- st_read(file.path(PATHS$input_pressure, "/havvind/_ags_win
 
 
 ## ------------------------------------------------------------------
-## 2. Modelparametre (Tougaard, Hermannsen & Madsen, 2020, JASA 148:2885-2893)
+## 2. Modelparametre (Tougaard, Hermannsen & Madsen, 2020)
 ## ------------------------------------------------------------------
 
-C_ref <- 109    # dB re 1 µPa - grand mean ved 100 m, 1 MW, 10 m/s
+C_ref <- 109    # dB re 1 µPa - grand mean ved 100 m, 1 MW, 10 m/s 
 alpha_generic <- -23.7  # dB/dekade - generisk (tværfarms) afstandshældning
 beta  <- 18.5   # dB/dekade - effekt af vindhastighed
 gamma <- 13.6   # dB/dekade - effekt af møllestørrelse
 
-wind_speed_ref <- 10  # m/s - reference-vindhastighed, bekræftet retvisende for området
+wind_speed_ref <- 10  # m/s - reference-vindhastighed, kan justeres men har tjekket vindkort og det er ca gennemsnittet for Østersøen
 
 # Lillgrund-specifik kalibrering (Andersson et al., 2011 / Tougaard et al. 2020, Tabel II)
+# Lillgrund var specifikt en del af model data og der er derfor data for målte Leq ved specifike distancer
 lillgrund_calib <- data.frame(distance = c(160, 400, 1000), Leq = c(102, 92, 86))
 fit_lillgrund <- lm(Leq ~ log10(distance), data = lillgrund_calib)
 alpha_lillgrund <- unname(coef(fit_lillgrund)[2])
-intercept_1m_lillgrund <- unname(coef(fit_lillgrund)[1]) + beta * log10(wind_speed_ref / 12)  # juster 12->10 m/s
+intercept_1m_lillgrund <- unname(coef(fit_lillgrund)[1]) + beta * log10(wind_speed_ref / 12)  #Justering for vindhastighed som er 12 ved de målte Lillgrund værdier (tabel II)
 
 
 ## ------------------------------------------------------------------
@@ -73,18 +74,21 @@ intercept_1m_lillgrund <- unname(coef(fit_lillgrund)[1]) + beta * log10(wind_spe
 # (0 møller, 250 MW), da HOFOR-kilden vurderes mere retvisende.
 
 
+# Kriegers Flak II er ét projekt delt i to geografisk adskilte delområder (Nord og Syd),
+# fejlagtigt registreret som to separate polygoner med forskellig STATUS i EMODnet ("Krigers
+# Flak Nord" = Planned, "Kriegers Flak II" = Approved). Begge sættes her til "Approved", da
+# miljøvurderingen (Tabel 1-4) behandler dem som ét samlet projekt. Scenarie 1a/1b (basis,
+# 1.000 MW, 15 MW-møller) er valgt: fordelt 513 MW Nord / 487 MW Syd, jf. footnote-nøglen
+# fra Tabel 1-4 i Krigers Flak Delrapport 2 fra Miljøstyrrelsen (1.770/1.680 MW-fordelingen for 3.450 MW-scenariet, anvendt proportionalt).
+
+
+
 parks <- tibble::tribble(
   ~NAME,                   ~STATUS,      ~n_turbines, ~turbine_size_MW, ~has_points, ~min_distance,
   "Middelgrunden",         "Production", 20,          2.0,              FALSE,       100,
   "Kriegers Flak K2-K3",   "Production", 72,          8.4,              TRUE,        100,
   "Avedøre Holme",         "Production", 3,           3.6,              FALSE,       100,
   "Lillgrund",             "Production", 48,          2.3,              TRUE,        160,
-  # Kriegers Flak II er ét projekt delt i to geografisk adskilte delområder (Nord og Syd),
-  # fejlagtigt registreret som to separate polygoner med forskellig STATUS i EMODnet ("Krigers
-  # Flak Nord" = Planned, "Kriegers Flak II" = Approved). Begge sættes her til "Approved", da
-  # miljøvurderingen (Tabel 1-4) behandler dem som ét samlet projekt. Scenarie 1a/1b (basis,
-  # 1.000 MW, 15 MW-møller) er valgt: fordelt 513 MW Nord / 487 MW Syd, jf. footnote-nøglen
-  # fra Tabel 1-4 i Krigers Flak Delrapport 2 fra Miljøstyrrelsen (1.770/1.680 MW-fordelingen for 3.450 MW-scenariet, anvendt proportionalt).
   "Krigers Flak Nord",     "Approved",   34,          15.0,             FALSE,       100,
   "Kriegers Flak II",      "Approved",   32,          15.0,             FALSE,       100,
   "Aflandshage",           "Planned",    26,          11.54,            FALSE,       100,  # HOFOR: 26 møller, 300 MW
@@ -104,8 +108,8 @@ get_park_acoustic_params <- function(park_name, turbine_size_MW) {
     return(list(SL_1m = intercept_1m_lillgrund, alpha = alpha_lillgrund))
   }
   
-  L_100 <- C_ref + gamma * log10(turbine_size_MW / 1) + beta * log10(wind_speed_ref / 10)
-  SL_1m <- L_100 - alpha_generic * log10(100)
+  L_100 <- C_ref + gamma * log10(turbine_size_MW / 1) + beta * log10(wind_speed_ref / 10) # Den lineære støjmodel, alpha led ikke med da log10(100/100) = 0
+  SL_1m <- L_100 - alpha_generic * log10(100) # 100 m (109 dB re 1 lPa) back-calculated to 1 m by adding 47 dB (23:7 log10(100); the slope taken from the general LM
   
   list(SL_1m = SL_1m, alpha = alpha_generic)
 }
@@ -149,10 +153,12 @@ compute_park_intensity <- function(park_row, turbines_poly_koge, turbine_points_
   
   dist_matrix <- st_distance(grid_centroids, turbine_points) %>%
     units::drop_units()
-  dist_matrix[dist_matrix < park_row$min_distance] <- park_row$min_distance
+  dist_matrix[dist_matrix < park_row$min_distance] <- park_row$min_distance # Da modellen ikke kan beregne værdier tæt på turbinerne (får urealistiske store værdier), sættes min dist til 100 (160 for Lillgrund)
   
   L_per_turbine <- params$SL_1m + params$alpha * log10(dist_matrix)
-  rowSums(10^(L_per_turbine / 10))  # intensitet (µPa²), ikke dB
+  rowSums(10^(L_per_turbine / 10))  # summen af støj er ukorreleret (fra artiklen), men da dB er logaritmisk konverteret til Intensity (mikroPa^2)
+  # dB definition er L = 10*log10(I/I_ref), I = intensitet som isoleres til I = 10^(L/10), I_ref reference intensitet i vand som forsvinder, eftersom der konverteres tilbage til dB nedenfor
+  # rowsum er altså her hvad intensitet(senere dB/lydtrykket) er i hvert enkelt raster celle når man summerer trykket fra alle vindmøller i et polygonie 
 }
 
 
@@ -196,11 +202,11 @@ compute_status_layer <- function(df, status_filter, label) {
   )
   
   
-  oise_thresholded <- noise_rast_dB
-  noise_thresholded[noise_thresholded < 90] <- NA
+  noise_thresholded <- noise_rast_dB
+  noise_thresholded[noise_thresholded < 90] <- NA  # baggrundstøjs grænse på 90 dB (artikler for stille områder viser baggrundstøj omkring 90 og i trafikerede op mod 110 dB) Figur 4 B i artiklen
   noise_thresholded <- terra::clamp(noise_thresholded, upper = 140, values = TRUE)
 
-  noise_norm <- terra::scale_linear(noise_thresholded)
+  noise_norm <- terra::scale_linear(noise_thresholded) # der anvendes lineær normalisering da dB er på logaritmisk skala 
 
   names(noise_norm) <- "value"
   
@@ -240,7 +246,7 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_me
 
 viridis_start_color <- viridis_pal()(1)
 
-plot_noise_layer <- function(noise_norm_rast, title, filename) {
+plot_turbine_noise <- function(noise_norm_rast, title, filename) {
   
   noise_sf <- noise_norm_rast %>%
     terra::as.polygons(dissolve = FALSE) %>%
@@ -251,46 +257,14 @@ plot_noise_layer <- function(noise_norm_rast, title, filename) {
   
   p <- ggplot() +
     geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-    geom_sf(data = map_baltic_sea, fill = viridis_start_color, color = NA, alpha = 1) +
+    geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
     geom_sf(data = noise_sf, aes(fill = value), color = NA) +
-    scale_fill_viridis_c(name = title, limits = c(0, 1)) +
-    coord_sf(
-      crs  = 25832,
-      xlim = c(696427, 775958),
-      ylim = c(6096053, 6179593)
-    ) +
-    theme_minimal() +
-    theme(
-      axis.title.x     = element_blank(),
-      axis.title.y     = element_blank(),
-      axis.text.x      = element_blank(),
-      axis.text.y      = element_blank(),
-      legend.position  = c(0.81, 0.90),
-      legend.justification = "center",
-      legend.title     = element_text(size = 20),
-      legend.text      = element_text(size = 18),
-      axis.ticks = element_blank(),
-      plot.margin = grid::unit(c(0, 0, 0, 0), units = "mm"),
-      axis.ticks.length = unit(0, "pt")
-    ) +
-    annotation_north_arrow(
-      location    = "br",
-      which_north = "true",
-      style       = north_arrow_fancy_orienteering,
-      pad_x       = unit(3.5, "cm"),
-      pad_y       = unit(1.0, "cm"),
-      height      = unit(1.8, "cm"),
-      width       = unit(1.8, "cm")
-    ) +
-    annotation_scale(
-      location    = "br",
-      width_hint  = 0.05,
-      height      = unit(0.4, "cm"),
-      bar_cols    = c("black", "white"),
-      pad_x       = unit(0.2, "cm"),
-      pad_y       = unit(1.5, "cm"),
-      text_cex    = 1.2
-    )
+    color_viridis+
+    boundary+
+    theme_minimal()+
+    my_theme+
+    north_arrow+
+    scale_bar
   
   ggsave(plot = p,
          filename = file.path(PATHS$output_pressure_png, filename),
@@ -302,6 +276,6 @@ plot_noise_layer <- function(noise_norm_rast, title, filename) {
   p
 }
 
-plot_noise_layer(noise_production$norm, "Støj (aktive parker)", "\\turbinestoj_production.png")
-plot_noise_layer(noise_approved$norm,   "Støj (godkendte parker)", "\\turbinestoj_approved.png")
-plot_noise_layer(noise_planned$norm,    "Støj (planlagte parker)", "\\turbinestoj_planned.png")
+plot_turbine_noise(noise_production$norm, "Støj (aktive parker)", "\\turbinestoj_production.png")
+plot_turbine_noise(noise_approved$norm,   "Støj (godkendte parker)", "\\turbinestoj_approved.png")
+plot_turbine_noise(noise_planned$norm,    "Støj (planlagte parker)", "\\turbinestoj_planned.png")

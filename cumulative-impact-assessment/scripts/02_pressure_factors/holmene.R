@@ -106,50 +106,15 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_me
 # ── 8. Plot ───────────────────────────────────────────────────────────────────
 map_holmene <- ggplot() +
   geom_sf(data = map_eu,  fill = "#c3fbb1", color = NA, alpha = 0.3) +
+  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
   geom_sf(data = holmene_sf,
           aes(fill = value), color = NA) +
-  scale_fill_viridis_c(
-    name   = "Holmene",
-    limits = c(0, 1),
-    na.value = NA
-  ) +
-  coord_sf(
-    crs  = target_crs,
-    xlim = c(696427, 775958),
-    ylim = c(6096053, 6179593)
-  ) +
-  theme_minimal() +
-  theme(
-    axis.title.x      = element_blank(),
-    axis.title.y      = element_blank(),
-    axis.text.x       = element_blank(),
-    axis.text.y       = element_blank(),
-    legend.position   = c(0.81, 0.90),
-    legend.justification = "center",
-    legend.title      = element_text(size = 20),
-    legend.text       = element_text(size = 18),
-    axis.ticks        = element_blank(),
-    plot.margin       = grid::unit(c(0, 0, 0, 0), units = "mm"),
-    axis.ticks.length = unit(0, "pt")
-  ) +
-  annotation_north_arrow(
-    location    = "br",
-    which_north = "true",
-    style       = north_arrow_fancy_orienteering,
-    pad_x       = unit(3.5, "cm"),
-    pad_y       = unit(1.0, "cm"),
-    height      = unit(1.8, "cm"),
-    width       = unit(1.8, "cm")
-  ) +
-  annotation_scale(
-    location   = "br",
-    width_hint = 0.05,
-    height     = unit(0.4, "cm"),
-    bar_cols   = c("black", "white"),
-    pad_x      = unit(0.2, "cm"),
-    pad_y      = unit(1.5, "cm"),
-    text_cex   = 1.2
-  )
+  color_viridis+
+  boundary+
+  theme_minimal()+
+  my_theme+
+  north_arrow+
+  scale_bar
 
 map_holmene
 

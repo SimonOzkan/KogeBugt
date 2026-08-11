@@ -1,90 +1,144 @@
-#---------------------- Offshore vindmølleparker-----------------
-
-# Indlæs pakker og set path fra source setup fil
+#---------------------- Offshore vindmølleparker - faste konstruktioner -----------------
 source("scripts/00_setup.R")
-
-# Hent tilgængelige project paths
 PATHS <- set_project_paths()
-
-# Sæt crs
 target_crs <- 25832
 
-# Indlæs grid og undersøgelsesområde fra de forskellige project paths
-
+# Indlæs grid og undersøgelsesområde
 grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(., crs = target_crs)
+  st_transform(crs = target_crs)
 
 grid_area <- grid %>%
-  mutate(area_grid = st_area(.)) %>%
-  st_drop_geometry(.)
+  mutate(area_grid = as.numeric(st_area(.))) %>%
+  st_drop_geometry()
 
 assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(., crs = target_crs)
+  st_transform(crs = target_crs)
 
 assessment_area_vect <- terra::vect(assessment_area_dissolved)
 
-# EMODnet oversigt over planlagte, aktive og godkendte offshore havvindmølleparker
+## ------------------------------------------------------------------
+## 1. Indlæs vindmøllepark polygoner
+## ------------------------------------------------------------------
+turbines <- st_read(file.path(PATHS$input_pressure, "/havvind/EMODnet_HA_Energy_WindFarms_20260710/EMODnet_HA_Energy_WindFarms_pg_20260710.shp")) %>%
+  st_transform(crs = target_crs) %>%
+  st_make_valid()
 
-turbines <- st_read(file.path(PATHS$input_pressure, "/havvind/EMODnet_HA_Energy_WindFarms_20260710/EMODnet_HA_Energy_WindFarms_pg_20260710.shp"))
+# Tjek unikke STATUS værdier
+message("Unikke STATUS værdier: ")
+print(unique(turbines$STATUS))
 
-turbines_proj <- turbines %>%
-  st_transform(.,crs = target_crs)
-# Klip/intersect til undersøgelsesområde
-
-turbines_koge <- st_intersection(turbines_proj,assessment_area_dissolved)
-
-ggplot()+
-  geom_sf(data = turbines_koge, aes(fill = STATUS), color = NA)+
-  theme_minimal()
-## Intersection med grid 
-
-turbines_area <- st_intersection(turbines_koge, grid) %>%
-  mutate(area_turbine = st_area(.)) %>%
-  left_join(grid_area, by = "id") %>%
-  mutate(value = as.numeric(area_turbine) / as.numeric(area_grid),
-         value = pmin(value, 1)) %>%
+turbines_koge <- st_intersection(turbines, assessment_area_dissolved) %>%
+  filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
   st_make_valid()
 
 
-## Konverter til raster
-
-r_template <- terra::rast(
-  extent     = terra::ext(assessment_area_vect),
-  resolution = 250,
-  crs        = "EPSG:25832"
-)
-
-status_turbines <- unique(turbines_area$STATUS)
-
-for (status in status_turbines) {
+## ------------------------------------------------------------------
+## 2. Funktion til fraktion-beregning
+## ------------------------------------------------------------------
+calc_frac <- function(lag_sf, grid, grid_area) {
+  intersection <- st_intersection(grid, lag_sf) %>%
+    filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
+    mutate(area_intersect = as.numeric(st_area(.)))
   
-  message("Laver raster for status: ", status)
+  if (nrow(intersection) == 0) {
+    message("  → Ingen overlap med grid")
+    return(NULL)
+  }
   
-  turbine_rast <- terra::rasterize(
-    terra::vect(turbines_area %>% filter(STATUS == status)),
-    r_template,
-    field      = "value",
-    fun        = "max",      # hvis overlap: tag max fraktion
-    background = NA          # celler udenfor assessment area sættes NA
-  )
+  frac <- intersection %>%
+    st_drop_geometry() %>%
+    left_join(grid_area, by = "id") %>%
+    mutate(
+      area_frac = area_intersect / area_grid,
+      area_frac = pmin(area_frac, 1)
+    ) %>%
+    group_by(id) %>%
+    summarise(
+      area_frac = sum(area_frac, na.rm = TRUE),
+      .groups   = "drop"
+    ) %>%
+    mutate(area_frac = pmin(area_frac, 1))
   
-  status_filename <- status %>%
-    stringr::str_replace_all(" ", "_") %>%
-    stringr::str_replace_all("[^A-Za-z0-9_]", "")
-  
-  terra::writeRaster(
-    turbine_rast,
-    filename  = file.path(PATHS$output_pressure_tif, paste0("turbines_", status_filename, ".tif")),
-    overwrite = TRUE
-  )
-  
-  message("  → Gemt: turbines_", status_filename, ".tif")
+  return(frac)
 }
 
+## ------------------------------------------------------------------
+## 3. Funktion til rasterisering
+## ------------------------------------------------------------------
+make_raster <- function(frac_df, grid, assessment_area_vect, target_crs) {
+  r_template <- terra::rast(
+    extent     = terra::ext(assessment_area_vect),
+    resolution = 250,
+    crs        = paste0("EPSG:", target_crs)
+  )
+  
+  grid_frac <- grid %>%
+    left_join(frac_df %>% select(id, area_frac), by = "id") %>%
+    mutate(area_frac = ifelse(is.na(area_frac), 0, area_frac))
+  
+  r <- terra::rasterize(
+    terra::vect(grid_frac),
+    r_template,
+    field      = "area_frac",
+    fun        = "max",
+    background = NA
+  )
+  r[r == 0] <- NA
+  return(r)
+}
 
-############### Plotting for bilag ################
+## ------------------------------------------------------------------
+## 4. Filtrer per STATUS og beregn fraktioner
+## ------------------------------------------------------------------
+turbines_production <- turbines_koge %>% filter(STATUS == "Production")
+turbines_approved   <- turbines_koge %>% filter(STATUS == "Approved")
+turbines_planned    <- turbines_koge %>% filter(STATUS == "Planned")
 
+frac_production <- calc_frac(turbines_production, grid, grid_area)
 
+frac_approved <- calc_frac(turbines_approved, grid, grid_area)
+
+frac_planned <- calc_frac(turbines_planned, grid, grid_area)
+
+## ------------------------------------------------------------------
+## 5. Lav rasters
+## ------------------------------------------------------------------
+r_production <- make_raster(frac_production, grid, assessment_area_vect, target_crs)
+r_approved   <- make_raster(frac_approved,   grid, assessment_area_vect, target_crs)
+r_planned    <- make_raster(frac_planned,    grid, assessment_area_vect, target_crs)
+
+# Gem tif filer
+terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "vindmoelleparker_production_frac.tif"), overwrite = TRUE)
+terra::writeRaster(r_approved,   file.path(PATHS$output_pressure_tif, "vindmoelleparker_approved_frac.tif"),   overwrite = TRUE)
+terra::writeRaster(r_planned,    file.path(PATHS$output_pressure_tif, "vindmoelleparker_planned_frac.tif"),    overwrite = TRUE)
+
+message("Alle tif filer gemt")
+
+## ------------------------------------------------------------------
+## 6. Lav sf til plot
+## ------------------------------------------------------------------
+to_sf <- function(r) {
+  r %>%
+    terra::as.polygons(dissolve = FALSE) %>%
+    st_as_sf() %>%
+    st_make_valid() %>%
+    rename("value" = 1) %>%
+    st_transform(crs = target_crs)
+}
+
+production_sf_plot <- to_sf(r_production) %>%
+  mutate(status = "aktiv")
+approved_sf_plot   <- to_sf(r_approved)%>%
+  mutate(status = "godkendt")
+planned_sf_plot    <- to_sf(r_planned)%>%
+  mutate(status = "planlagt")
+
+sf_turbne_comb <- bind_rows(production_sf_plot,approved_sf_plot) %>%
+  bind_rows(planned_sf_plot)
+
+## ------------------------------------------------------------------
+## 7. Indlæs baggrundskort og plot-funktion
+## ------------------------------------------------------------------
 map_baltic_sea <- st_read(file.path(PATHS$input_assessment_area, "/maps/BalticSeaMap/iho.shp")) %>%
   st_transform(., crs = target_crs)
 map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
@@ -93,50 +147,32 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_me
 
 viridis_start_color <- viridis_pal()(1)
 
-map_turbines <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = map_baltic_sea, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = turbines_area,
-          aes(fill = value), color = NA) +
-  scale_fill_viridis_c(name = "Turbines", limits = c(0, 1)) +
-  facet_wrap(~ STATUS, ncol = 1, strip.position = "top") +
-  coord_sf(
-    crs  = 25832,
-    xlim = c(696427, 775958),
-    ylim = c(6096053, 6179593)
-  ) +
-  theme_minimal() +
-  theme(
-    axis.title.x     = element_blank(),
-    axis.title.y     = element_blank(),
-    axis.text.x      = element_blank(),
-    axis.text.y      = element_blank(),
-    legend.position  = "right",
-    legend.title     = element_text(size = 14),
-    legend.text      = element_text(size = 12),
-    strip.text       = element_text(size = 14, face = "bold"),
-    axis.ticks = element_blank(),
-    plot.margin = grid::unit(c(2, 2, 2, 2), units = "mm"),
-    axis.ticks.length = unit(0, "pt")
-  ) +
-  annotation_scale(
-    location    = "br",
-    width_hint  = 0.15,
-    height      = unit(0.3, "cm"),
-    bar_cols    = c("black", "white"),
-    text_cex    = 0.9
-  )
-
-map_turbines
-
-ggsave(plot = map_turbines,
-       filename = file.path(PATHS$output_pressure_png, "\\turbines_by_status.png"),
-       bg = NULL,
-       height = 10,
-       width = 24,
-       dpi = 300)
+plot_vindmoeller <- function(sf_data, titel) {
+  ggplot() +
+    geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
+    geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+    geom_sf(data = sf_data, aes(fill = value), color = NA) +
+    color_viridis+
+    boundary+
+    theme_minimal()+
+    my_theme+
+    north_arrow+
+    scale_bar
+}
 
 
+## ------------------------------------------------------------------
+## 8. Lav og gem plots
+## ------------------------------------------------------------------
+map_production <- plot_vindmoeller(production_sf_plot, "Vindmølleparker\nProduction")
+map_approved   <- plot_vindmoeller(approved_sf_plot,   "Vindmølleparker\nApproved")
+map_planned    <- plot_vindmoeller(planned_sf_plot,    "Vindmølleparker\nPlanned")
 
+map_production
+map_approved
+map_planned
 
+ggsave(plot = map_production, filename = file.path(PATHS$output_pressure_png, "\\vindmoelleparker_production.png"), bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_approved,   filename = file.path(PATHS$output_pressure_png, "\\vindmoelleparker_approved.png"),   bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_planned,    filename = file.path(PATHS$output_pressure_png, "\\vindmoelleparker_planned.png"),    bg = NULL, height = 18, width = 18, dpi = 300)
 
