@@ -81,8 +81,7 @@ terra::writeRaster(
 
 ############### Plotting for bilag ################
 
-map_baltic_sea <- st_read(file.path(PATHS$input_assessment_area, "/maps/BalticSeaMap/iho.shp")) %>%
-  st_transform(., crs = target_crs)
+
 map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
   st_transform(., crs = target_crs)
 

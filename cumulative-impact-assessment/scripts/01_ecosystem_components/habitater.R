@@ -178,7 +178,7 @@ for (hab in habitat_typer) {
   
   terra::writeRaster(
     r_hab,
-    filename  = file.path(PATHS$output_ecosystem_tif, paste0(hab_filename, ".tif")),
+    filename  = file.path(PATHS$output_ecosystem_tif,"/Broad_scale_hab/", paste0(hab_filename, ".tif")),
     overwrite = TRUE
   )
   
