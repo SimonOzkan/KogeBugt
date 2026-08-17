@@ -15,6 +15,8 @@ set_project_paths <- function() {
     input_ecosystem = file.path(TEAMS_BASE, "Data/Ecosystem"),
     input_pressure = file.path(TEAMS_BASE, "Data/Pressure"),
     input_assessment_area = file.path(TEAMS_BASE, "Data/Assessment_Area"),
+    input_phys_chem_geo = file.path(TEAMS_BASE, "Data/phys_chem_geo data"),
+    
     
     # Output data til Teams 
     output_ecosystem_tif = file.path(TEAMS_BASE, "Data/Outputs/EC_tif"),

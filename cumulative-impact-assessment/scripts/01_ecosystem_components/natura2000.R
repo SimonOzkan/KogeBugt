@@ -93,7 +93,7 @@ viridis_start_color <- viridis_pal()(1)
 
 map_natura2000 <- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
   geom_sf(data = natura2000_area, 
           aes(fill = value), color = NA) +
   color_viridis+
