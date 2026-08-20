@@ -13,6 +13,16 @@ if(length(new_packages)) {
 # Load packages
 lapply(required_packages, library, character.only = TRUE)
 
+grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
+  st_transform(., crs = target_crs)
+mutate(area_grid = st_area(.)) 
+
+assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
+  st_transform(., crs = target_crs)
+assessment_area_vect <- terra::vect(assessment_area_dissolved)
+
+grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "/geotif/assessment_area.tif"))
+
 
 viridis_start_color <- viridis_pal()(1)
 
