@@ -1,20 +1,8 @@
 #---------------------- Broer (buffer / fraktion) -----------------
-# Indlæs pakker og set path fra source setup fil
+# Indlæs pakker, assessment grid og set path fra source setup fil
 source("scripts/00_setup.R")
 # Hent tilgængelige project paths
 PATHS <- set_project_paths()
-# Sæt crs
-target_crs <- 25832
-
-# Indlæs grid, undersøgelsesområde og data
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(., crs = target_crs)
-  mutate(area_grid = st_area(.)) 
-  
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(., crs = target_crs)
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
-grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "/geotif/assessment_area.tif"))
 
 ## Indlæs broer hentet via OSM service i QGIS
 broer <- st_read(file.path(PATHS$input_pressure, "broer/osm_broer/broer_osm.gpkg")) 
@@ -29,19 +17,36 @@ broer_koge_buffer <- broer_koge %>%
 
 # For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
 # så arealet beregnes celle-for-celle
-broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid)
+broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid) %>%
+  dplyr::select(id, area_grid) %>%
+  mutate(area_bro = st_area(.)) %>%
+  st_drop_geometry() %>%
+  group_by(id) %>%
+  summarise(area_bro_id = sum(area_bro)) %>%
+  left_join(grid) %>%# tilføj gridcelle geometri og beregn fraktion
+  mutate(value = as.numeric(area_bro_id) / as.numeric(area_grid),
+         value = pmin(value, 1)) 
 
 # Find fraktion af hver gridcelle dækket af buffer og sæt til value for raster (0-1)
 broer_koge_buffer_area <- broer_koge_buffer_grid %>%
   mutate(area_bro = st_area(.)) %>%
-  left_join(grid_area, by = "id") %>%
   mutate(value = as.numeric(area_bro) / as.numeric(area_grid),
-         value = pmin(value, 1))
+         value = pmin(value, 1)) %>%
+  st_drop_geometry(.) %>%
+  left_join(grid) # tilføj gridcelle geometri
+
 
 # Konverter til raster
+
+r_template <- terra::rast(
+  extent     = terra::ext(assessment_area_vect),
+  resolution = 250,
+  crs        = "EPSG:25832"
+)
+
 bro_buffer_rast <- terra::rasterize(
   terra::vect(broer_koge_buffer_area),
-  grid_raster,
+  r_template,
   field      = "value",
   fun        = "sum",    # flere buffere kan overlappe samme celle → summer bidrag
   background = NA         # celler udenfor assessment area → NA
