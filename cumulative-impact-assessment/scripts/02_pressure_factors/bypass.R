@@ -1,7 +1,6 @@
 #----------------------------------- Bypass ----------------------- ##
-source("scripts/00_setup.R")
+source(here::here("scripts/00_setup.R"))
 PATHS <- set_project_paths()
-target_crs <- 25832
 
 ## ------------------------------------------------------------------
 ## 1. Hent Bypass data fra WFS

@@ -6,10 +6,11 @@
 source(here::here("config/paths.R"))
 PATHS <- set_project_paths()
 
+target_crs <- 25832
 # Install packages hvis de mangler
 required_packages <- c("terra","dplyr","sf","ggplot2", "tidyr", "purrr", "readr","readxl","patchwork", "raster","tidyterra",
-                       "lubridate", "stringr", "forcats", "scales","sf","gridExtra","grid","lattice","ggpubr","gt","writexl",
-                       "ggspatial","httr","ows4R")
+                       "lubridate", "stringr", "forcats", "scales","gridExtra","grid","lattice","ggpubr","gt","writexl",
+                       "ggspatial","httr","ows4R","viridis", "viridisLite")
 
 new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 if(length(new_packages)) {
@@ -18,15 +19,15 @@ if(length(new_packages)) {
 # Load packages
 lapply(required_packages, library, character.only = TRUE)
 
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(., crs = target_crs)
-mutate(area_grid = st_area(.)) 
+grid <- st_read(file.path(PATHS$input_assessment_area, "shp", "250_grid_minus_land.shp")) %>%
+  st_transform(., crs = target_crs) %>%
+  mutate(area_grid = st_area(.)) 
 
 assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
   st_transform(., crs = target_crs)
 assessment_area_vect <- terra::vect(assessment_area_dissolved)
 
-grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "/geotif/assessment_area.tif"))
+grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "geotif", "assessment_area.tif"))
 
 
 viridis_start_color <- viridis_pal()(1)
