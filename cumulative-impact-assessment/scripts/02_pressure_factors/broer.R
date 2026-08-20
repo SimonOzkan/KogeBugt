@@ -1,0 +1,131 @@
+#---------------------- Broer (buffer / fraktion) -----------------
+# Indlæs pakker og set path fra source setup fil
+source("scripts/00_setup.R")
+# Hent tilgængelige project paths
+PATHS <- set_project_paths()
+# Sæt crs
+target_crs <- 25832
+
+# Indlæs grid, undersøgelsesområde og data
+grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
+  st_transform(., crs = target_crs)
+  mutate(area_grid = st_area(.)) 
+  
+assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
+  st_transform(., crs = target_crs)
+assessment_area_vect <- terra::vect(assessment_area_dissolved)
+grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "/geotif/assessment_area.tif"))
+
+## Indlæs broer hentet via OSM service i QGIS
+broer <- st_read(file.path(PATHS$input_pressure, "broer/osm_broer/broer_osm.gpkg")) 
+
+#--------- intersection med undersøgelsesområdet
+broer_koge <- st_intersection(broer, grid)
+message("Antal broer i undersøgelsesområdet: ", paste(nrow(broer_koge)))
+
+# Læg 50 m buffer omkring hver bro
+broer_koge_buffer <- broer_koge %>%
+  st_buffer(dist = 50)
+
+# For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
+# så arealet beregnes celle-for-celle
+broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid)
+
+# Find fraktion af hver gridcelle dækket af buffer og sæt til value for raster (0-1)
+broer_koge_buffer_area <- broer_koge_buffer_grid %>%
+  mutate(area_bro = st_area(.)) %>%
+  left_join(grid_area, by = "id") %>%
+  mutate(value = as.numeric(area_bro) / as.numeric(area_grid),
+         value = pmin(value, 1))
+
+# Konverter til raster
+bro_buffer_rast <- terra::rasterize(
+  terra::vect(broer_koge_buffer_area),
+  grid_raster,
+  field      = "value",
+  fun        = "sum",    # flere buffere kan overlappe samme celle → summer bidrag
+  background = NA         # celler udenfor assessment area → NA
+)
+# Sikr at fraktion ikke overstiger 1 efter sum
+bro_buffer_rast <- terra::clamp(bro_buffer_rast, lower = 0, upper = 1, values = TRUE)
+
+plot(bro_buffer_rast)
+terra::writeRaster(
+  bro_buffer_rast,
+  filename = file.path(PATHS$output_pressure_tif, "\\broer_buffer.tif"),
+  overwrite = TRUE
+)
+
+############### Plotting for bilag ################
+map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
+  st_transform(., crs = target_crs)
+viridis_start_color <- viridis_pal()(1)
+
+map_broer_buffer <- ggplot() +
+  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
+  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
+  geom_sf(data = broer_koge_buffer, color = "yellow", size = 1) +
+  color_viridis +
+  boundary +
+  theme_minimal() +
+  my_theme +
+  north_arrow +
+  scale_bar
+map_broer_buffer
+
+ggsave(plot = map_broer_buffer,
+       filename = file.path(PATHS$output_pressure_png, "/anlaeg_hav/broer_buffer.png"),
+       bg = NULL,
+       height = 18,
+       width = 18,
+       dpi = 300)
+
+
+
+# - Broer uden buffer ---------------------------
+
+# Sæt present-værdi (1) på alle broer
+broer_koge_pa <- broer_koge %>%
+  mutate(value = 1)
+
+# Konverter til raster: enhver celle berørt af en bro → 1, ellers 0
+bro_pa_rast <- terra::rasterize(
+  terra::vect(broer_koge_pa),
+  grid_raster,
+  field      = "value",
+  fun        = "max",    # present hvis mindst én bro berører cellen
+  background = 0          # celler uden bro (men i assessment area) → 0
+)
+# Maskér til assessment area, så celler udenfor bliver NA
+bro_pa_rast <- terra::mask(bro_pa_rast, assessment_area_vect)
+
+plot(bro_pa_rast)
+terra::writeRaster(
+  bro_pa_rast,
+  filename = file.path(PATHS$output_pressure_tif, "\\broer_pa.tif"),
+  overwrite = TRUE
+)
+
+############### Plotting for bilag ################
+map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
+  st_transform(., crs = target_crs)
+viridis_start_color <- viridis_pal()(1)
+
+map_broer_pa <- ggplot() +
+  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
+  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
+  geom_sf(data = broer_koge, color = "yellow", size = 1) +
+  color_viridis +
+  boundary +
+  theme_minimal() +
+  my_theme +
+  north_arrow +
+  scale_bar
+map_broer_pa
+
+ggsave(plot = map_broer_pa,
+       filename = file.path(PATHS$output_pressure_png, "/broer/", "broer_pa.png"),
+       bg = NULL,
+       height = 18,
+       width = 18,
+       dpi = 300)

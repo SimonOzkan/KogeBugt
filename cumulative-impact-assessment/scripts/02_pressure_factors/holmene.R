@@ -97,12 +97,10 @@ holmene_sf <- r_holmene %>%
   st_transform(crs = target_crs)
 
 # ── 7. Indlæs baggrundskort ───────────────────────────────────────────────────
-map_baltic_sea <- st_read(file.path(PATHS$input_assessment_area, "/maps/BalticSeaMap/iho.shp")) %>%
-  st_transform(crs = target_crs)
-
 map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
   st_transform(crs = target_crs)
 
+viridis_start_color <- viridis_pal()(1)  
 # ── 8. Plot ───────────────────────────────────────────────────────────────────
 map_holmene <- ggplot() +
   geom_sf(data = map_eu,  fill = "#c3fbb1", color = NA, alpha = 0.3) +
