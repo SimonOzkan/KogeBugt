@@ -21,7 +21,7 @@ lapply(required_packages, library, character.only = TRUE)
 
 grid <- st_read(file.path(PATHS$input_assessment_area, "shp", "250_grid_minus_land.shp")) %>%
   st_transform(., crs = target_crs) %>%
-  mutate(area_grid = st_area(.)) 
+  mutate(area_grid = as.numeric(st_area(.))) 
 
 assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
   st_transform(., crs = target_crs)
