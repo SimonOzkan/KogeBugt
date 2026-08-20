@@ -3,16 +3,6 @@ source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 target_crs <- 25832
 
-# Indlæs grid og undersøgelsesområde
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(crs = target_crs) %>%
-  mutate(area_grid = as.numeric(st_area(.)))
-
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(crs = target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
-
 ## ------------------------------------------------------------------
 ## 1. Hent Bypass data fra WFS
 ## ------------------------------------------------------------------
