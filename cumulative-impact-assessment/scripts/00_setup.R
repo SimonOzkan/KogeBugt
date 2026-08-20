@@ -27,9 +27,6 @@ assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\s
   st_transform(., crs = target_crs)
 assessment_area_vect <- terra::vect(assessment_area_dissolved)
 
-grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "geotif", "assessment_area.tif"))
-
-
 viridis_start_color <- viridis_pal()(1)
 
 color_viridis <- scale_fill_viridis_c(
