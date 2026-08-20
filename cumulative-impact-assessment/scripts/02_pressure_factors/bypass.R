@@ -47,7 +47,7 @@ bypass_frac <- bypass_grid %>%
     area_frac = sum(area_frac, na.rm = TRUE),
     .groups   = "drop"
   ) %>%
-  mutate(area_frac = pmin(area_frac, 1)) %>%
+  mutate(value = pmin(area_frac, 1)) %>%
   left_join(grid, by = "id") %>% 
   dplyr::select(-area_grid)
   
@@ -59,8 +59,8 @@ bypass_frac <- bypass_grid %>%
 
 r_bypass <- terra::rasterize(
   terra::vect(bypass_frac),
-  r_template,
-  field      = "area_frac",
+  grid_raster,
+  field      = "value",
   fun        = "max",
   background = NA
 )
