@@ -23,7 +23,7 @@ grid <- st_read(file.path(PATHS$input_assessment_area, "shp", "250_grid.shp")) %
   st_transform(., crs = target_crs) %>%
   mutate(area_grid = as.numeric(st_area(.))) 
 
-grid_raster <- terra::rast(PATHS$input_assessment_area, "geotif","assessment_area.tif")
+grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "geotif","assessment_area.tif"))
 
 assessment_area_dissolved <- grid %>%
   st_union(.)
