@@ -23,18 +23,23 @@ broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid) %>%
   mutate(area_bro = st_area(.)) %>%
   st_drop_geometry() %>%
   group_by(id) %>%
-  summarise(area_bro_id = sum(area_bro)) %>%
-  left_join(grid) %>%# tilføj gridcelle geometri og beregn fraktion
-  mutate(value = as.numeric(area_bro_id) / as.numeric(area_grid),
-         value = pmin(value, 1)) 
+  summarise(area_bro_id = sum(area_bro), .groups = "drop")
 
-
-# Tilføj celle geometri igen og lav til raster
-broer_koge_gridded <- broer_koge_buffer_grid %>%
-  left_join(grid) %>% # tilføj gridcelle geometri
+broer_koge_gridded <- grid %>%                          # start fra HELE grid
+  left_join(broer_koge_buffer_grid, by = "id") %>%      # join bro-arealer på
+  mutate(
+    area_bro_id = tidyr::replace_na(as.numeric(area_bro_id), 0),  # ingen bro = 0
+    value = as.numeric(area_bro_id) / as.numeric(area_grid),
+    value = pmin(value, 1)
+  ) %>%
+  dplyr::select(id, value, geometry) %>%
   st_as_sf()
 
-# Konverter til raster
+
+message("Antal grid-celler i alt: ", nrow(broer_koge_gridded),
+        " – heraf med Broer: ", sum(broer_koge_gridded$value > 0))
+
+#-------- Lav raster ------------------
 
 bro_buffer_rast <- terra::rasterize(
   terra::vect(broer_koge_gridded),
@@ -59,7 +64,7 @@ viridis_start_color <- viridis_pal()(1)
 map_broer_buffer <- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
   geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = broer_koge_gridded,fill = "yellow", color=NA) +
+  geom_sf(data = broer_koge_buffer,fill = "yellow", color=NA) +
   color_viridis +
   boundary +
   theme_minimal() +
@@ -74,7 +79,6 @@ ggsave(plot = map_broer_buffer,
        height = 18,
        width = 18,
        dpi = 300)
-
 
 
 # - Broer uden buffer ---------------------------
@@ -109,7 +113,7 @@ viridis_start_color <- viridis_pal()(1)
 map_broer_pa <- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
   geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = broer_koge, color = "yellow", size = 1) +
+  geom_sf(data = broer_koge, color = "yellow", size = 1.5) +
   color_viridis +
   boundary +
   theme_minimal() +
@@ -119,7 +123,7 @@ map_broer_pa <- ggplot() +
 map_broer_pa
 
 ggsave(plot = map_broer_pa,
-       filename = file.path(PATHS$output_pressure_png, "/broer/", "broer_pa.png"),
+       filename = file.path(PATHS$output_pressure_png, "/anlaeg/", "broer_pa.png"),
        bg = NULL,
        height = 18,
        width = 18,
