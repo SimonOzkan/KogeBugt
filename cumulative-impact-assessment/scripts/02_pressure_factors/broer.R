@@ -5,20 +5,21 @@ source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
 ## Indlæs broer hentet via OSM service i QGIS
-broer <- st_read(file.path(PATHS$input_pressure, "broer/osm_broer/broer_osm.gpkg")) 
+broer <- st_read(file.path(PATHS$input_pressure, "broer","osm_broer","broer_osm.gpkg")) 
 
 #--------- intersection med undersøgelsesområdet
-broer_koge <- st_intersection(broer, grid)
+broer_koge <- st_intersection(broer, assessment_area_dissolved)
 message("Antal broer i undersøgelsesområdet: ", paste(nrow(broer_koge)))
 
 # Læg 50 m buffer omkring hver bro
 broer_koge_buffer <- broer_koge %>%
-  st_buffer(dist = 50)
+  st_buffer(dist = 50) %>%
+  st_union() %>%
+  st_as_sf()
 
 # For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
 # så arealet beregnes celle-for-celle
 broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid) %>%
-  dplyr::select(id, area_grid) %>%
   mutate(area_bro = st_area(.)) %>%
   st_drop_geometry() %>%
   group_by(id) %>%
@@ -27,37 +28,26 @@ broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid) %>%
   mutate(value = as.numeric(area_bro_id) / as.numeric(area_grid),
          value = pmin(value, 1)) 
 
-# Find fraktion af hver gridcelle dækket af buffer og sæt til value for raster (0-1)
-broer_koge_buffer_area <- broer_koge_buffer_grid %>%
-  mutate(area_bro = st_area(.)) %>%
-  mutate(value = as.numeric(area_bro) / as.numeric(area_grid),
-         value = pmin(value, 1)) %>%
-  st_drop_geometry(.) %>%
-  left_join(grid) # tilføj gridcelle geometri
 
+# Tilføj celle geometri igen og lav til raster
+broer_koge_gridded <- broer_koge_buffer_grid %>%
+  left_join(grid) %>% # tilføj gridcelle geometri
+  st_as_sf()
 
 # Konverter til raster
 
-r_template <- terra::rast(
-  extent     = terra::ext(assessment_area_vect),
-  resolution = 250,
-  crs        = "EPSG:25832"
-)
-
 bro_buffer_rast <- terra::rasterize(
-  terra::vect(broer_koge_buffer_area),
-  r_template,
+  terra::vect(broer_koge_gridded),
+  grid_raster,
   field      = "value",
-  fun        = "sum",    # flere buffere kan overlappe samme celle → summer bidrag
+  fun        = "max",    # præcis en værdi på id 
   background = NA         # celler udenfor assessment area → NA
 )
-# Sikr at fraktion ikke overstiger 1 efter sum
-bro_buffer_rast <- terra::clamp(bro_buffer_rast, lower = 0, upper = 1, values = TRUE)
 
 plot(bro_buffer_rast)
 terra::writeRaster(
   bro_buffer_rast,
-  filename = file.path(PATHS$output_pressure_tif, "\\broer_buffer.tif"),
+  filename = file.path(PATHS$output_pressure_tif,"anlaeg", "broer_buffer.tif"),
   overwrite = TRUE
 )
 
@@ -69,7 +59,7 @@ viridis_start_color <- viridis_pal()(1)
 map_broer_buffer <- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
   geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = broer_koge_buffer, color = "yellow", size = 1) +
+  geom_sf(data = broer_koge_gridded,fill = "yellow", color=NA) +
   color_viridis +
   boundary +
   theme_minimal() +
@@ -79,7 +69,7 @@ map_broer_buffer <- ggplot() +
 map_broer_buffer
 
 ggsave(plot = map_broer_buffer,
-       filename = file.path(PATHS$output_pressure_png, "/anlaeg_hav/broer_buffer.png"),
+       filename = file.path(PATHS$output_pressure_png, "anlaeg","broer_buffer.png"),
        bg = NULL,
        height = 18,
        width = 18,
