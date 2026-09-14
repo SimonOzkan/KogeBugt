@@ -2,29 +2,9 @@
 # EMODnet datalag
 # https://emodnet.ec.europa.eu/geonetwork/srv/eng/catalog.search#/metadata/6d617269-6e65-696e-666f-000000008820 
 # Indlæs pakker og set path fra source setup fil
-source("scripts/00_setup.R")
-
-# Hent tilgængelige project paths
+#----------------------------------- Bypass ----------------------- ##
+source(here::here("scripts/00_setup.R"))
 PATHS <- set_project_paths()
-
-# Sæt crs
-target_crs <- 25832
-
-# Indlæs grid og undersøgelsesområde fra de forskellige project paths
-
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(., crs = target_crs)
-
-grid_area <- grid %>%
-  mutate(area_grid = st_area(.)) %>%
-  st_drop_geometry(.)
-
-grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "/geotif/assessment_area.tif"))
-
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(., crs = target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
 #####
 marsvin_nc_path <- file.path(PATHS$input_ecosystem,"/Pattedyr/porpoiseHabitatSuitability_with_SeasonYears.nc")
 

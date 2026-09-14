@@ -6,23 +6,6 @@ source("scripts/00_setup.R")
 #Hent tilgængelige project paths
 PATHS <- set_project_paths()
 
-# Sæt crs 
-target_crs <- 25832
-
-# Indlæs grid, undersøgelsesområde og data fra de forskellige project paths
-
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(., crs = target_crs)
-
-grid_area <- grid %>%
-  mutate(area_grid = st_area(.) ) %>%
-  st_drop_geometry(.)
-
-assessment_area_dissolved <-st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(.,crs=target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
-
 ## indlæs Natura 2000 områder (se data folder)
 
 natura2000 <- st_read(file.path(PATHS$input_ecosystem, "\\natura2000\\eea_v_3035_100_k_natura2000_p_2024_v01_r00\\eea_v_3035_100_k_natura2000_p_2024_v01_r00\\SHP\\Natura2000_end2024_epsg3035.shp"))

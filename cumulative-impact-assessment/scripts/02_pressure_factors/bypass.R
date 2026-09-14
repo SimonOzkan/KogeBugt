@@ -3,7 +3,7 @@ source(here::here("scripts/00_setup.R"))
 PATHS <- set_project_paths()
 
 ## ------------------------------------------------------------------
-## 1. Hent Bypass data fra WFS
+## Hent Bypass data fra WFS
 ## ------------------------------------------------------------------
 wfs_url_bypass <- "https://gisportal.mst.dk/server/services/ekstern/KDI_Bypass/MapServer/WFSServer"
 
@@ -21,36 +21,37 @@ bypass <- st_read(request_bypass) %>%
   st_make_valid()
 
 ## ------------------------------------------------------------------
-## 2. Intersect med undersøgelsesområde
+## Intersect med undersøgelsesområde
 ## ------------------------------------------------------------------
 bypass_koge <- st_intersection(bypass, grid) %>%
   filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
   st_make_valid()
 
-message("Antal bypass-polygoner i Køge Bugt: ", nrow(bypass_koge))
-
 ## ------------------------------------------------------------------
-## 3. Intersection med 250m grid og beregn fraktion
+## Intersection med 250m grid og beregn fraktion
 ## ------------------------------------------------------------------
 bypass_grid <- bypass_koge %>%
-  mutate(area_intersect = as.numeric(st_area(.)))
-
-# Beregn fraktion af grid celle geometrien og tilføj celle geometri
-bypass_frac <- bypass_grid %>%
+  mutate(area_intersect = as.numeric(st_area(.))) %>%
   st_drop_geometry() %>%
   mutate(
-    area_frac = area_intersect / area_grid,
+    area_frac = area_intersect / as.numeric(area_grid),
     area_frac = pmin(area_frac, 1)
   ) %>%
   group_by(id) %>%
-  summarise(
-    area_frac = sum(area_frac, na.rm = TRUE),
-    .groups   = "drop"
+  summarise(area_frac = sum(area_frac, na.rm = TRUE), .groups = "drop")
+
+# Start fra HELE grid, så celler uden bypass får eksplicit 0
+bypass_frac <- grid %>%
+  left_join(bypass_grid, by = "id") %>%
+  mutate(
+    area_frac = tidyr::replace_na(area_frac, 0),   # ingen bypass = 0
+    value     = pmin(area_frac, 1)
   ) %>%
-  mutate(value = pmin(area_frac, 1)) %>%
-  left_join(grid, by = "id") %>% 
-  dplyr::select(-area_grid)
-  
+  dplyr::select(id, value, geometry) %>%
+  st_as_sf()
+
+message("Grid-celler i alt: ", nrow(bypass_frac),
+        " – heraf med bypass: ", sum(bypass_frac$value > 0))
 
 
 ## ------------------------------------------------------------------
@@ -64,39 +65,27 @@ r_bypass <- terra::rasterize(
   fun        = "max",
   background = NA
 )
-r_bypass[r_bypass == 0] <- NA
 
+plot(r_bypass)
 # Gem tif
 terra::writeRaster(
   r_bypass,
-  file.path(PATHS$output_pressure_tif, "bypass_frac.tif"),
+  file.path(PATHS$output_pressure_tif, "anlaeg","bypass_frac.tif"),
   overwrite = TRUE
 )
-message("Gemt: bypass_frac.tif")
 
 ## ------------------------------------------------------------------
-## 5. Lav sf til plot
-## ------------------------------------------------------------------
-bypass_sf_plot <- r_bypass %>%
-  terra::as.polygons(dissolve = FALSE) %>%
-  st_as_sf() %>%
-  st_make_valid() %>%
-  rename("value" = 1) %>%
-  st_transform(crs = target_crs)
-
-## ------------------------------------------------------------------
-## 6. Indlæs baggrundskort og plot
+## Plot (kun visuelt)
 ## ------------------------------------------------------------------
 map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
   st_transform(crs = target_crs)
-
 
 viridis_start_color <- viridis_pal()(1)  
 
 map_bypass <- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
   geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = bypass_sf_plot, aes(fill = value), color = NA, size = 2) +
+  geom_sf(data = bypass_koge, fill = "yellow", color = NA, size = 1.5) +
   color_viridis+
   boundary+
   theme_minimal()+
@@ -106,13 +95,11 @@ map_bypass <- ggplot() +
 
 map_bypass
 
-## ------------------------------------------------------------------
-## 7. Gem plot
-## ------------------------------------------------------------------
+
 ggsave(
   plot     = map_bypass,
-  filename = file.path(PATHS$output_pressure_png, "\\anlaeg_hav\\bypass.png"),
-  bg       = NULL,
+  filename = file.path(PATHS$output_pressure_png, "anlaeg", "bypass.png"),
+  bg       = "white",
   height   = 18,
   width    = 18,
   dpi      = 300

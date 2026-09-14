@@ -75,7 +75,7 @@ map_broer_buffer
 
 ggsave(plot = map_broer_buffer,
        filename = file.path(PATHS$output_pressure_png, "anlaeg","broer_buffer.png"),
-       bg = NULL,
+       bg = "white",
        height = 18,
        width = 18,
        dpi = 300)
