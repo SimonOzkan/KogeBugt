@@ -1,4 +1,4 @@
-#----------------------------------- Kabler ----------------------- ##
+#----------------------------------- Kabler og gasrør----------------------- ##
 
 # Indlæs pakker og set path fra source setup fil
 source("scripts/00_setup.R")
@@ -114,11 +114,12 @@ kabler_union <- kabler_buffered %>%
   st_as_sf()
 
 kabler_intersect <- st_intersection(kabler_union, grid) %>%
-  st_make_valid()
+  st_make_valid() %>%
+  dplyr::select(-area_grid)
 
 kabler_area <- kabler_intersect %>%
   mutate(area_kabel = st_area(.)) %>%
-  left_join(grid_area, by = "id") %>%
+  left_join(st_drop_geometry(grid), by = "id") %>%
   mutate(value = as.numeric(area_kabel) / as.numeric(area_grid),
          value = pmin(value, 1))
 
@@ -129,11 +130,12 @@ gasrør_union <- gasrør_buffered %>%
   st_as_sf()
 
 gasrør_intersect <- st_intersection(gasrør_union, grid) %>%
-  st_make_valid()
+  st_make_valid() %>%
+  dplyr::select(-area_grid)
 
 gasrør_area <- gasrør_intersect %>%
   mutate(area_gasrør = st_area(.)) %>%
-  left_join(grid_area, by = "id") %>%
+  left_join(st_drop_geometry(grid), by = "id") %>%
   mutate(value = as.numeric(area_gasrør) / as.numeric(area_grid),
          value = pmin(value, 1))
 
@@ -141,15 +143,17 @@ gasrør_area <- gasrør_intersect %>%
 ## 5. Rasterize og gem .tif
 ## ------------------------------------------------------------------
 
-r_template <- terra::rast(
-  extent     = terra::ext(assessment_area_vect),
-  resolution = 250,
-  crs        = "EPSG:25832"
-)
-
 kabler_rast <- terra::rasterize(
   terra::vect(kabler_area),
-  r_template,
+  grid_raster,
+  field      = "value",
+  fun        = "max",      # der bør ikke være overlap efter union, derfor tages max
+  background = NA
+)
+
+gasrør_rast <- terra::rasterize(
+  terra::vect(gasrør_area),
+  grid_raster,
   field      = "value",
   fun        = "max",      # der bør ikke være overlap efter union, derfor tages max
   background = NA
@@ -157,70 +161,67 @@ kabler_rast <- terra::rasterize(
 
 plot(kabler_rast, main = "Kabler og rørledninger - arealfraktion")
 
+plot(gasrør_rast, main = "Gasrør - arealfraktion")
+
 terra::writeRaster(
   kabler_rast,
   filename  = file.path(PATHS$output_pressure_tif, "\\kabler.tif"),
   overwrite = TRUE
 )
 
+# gasrør
+terra::writeRaster(
+  gasrør_rast,
+  filename  = file.path(PATHS$output_pressure_tif, "\\gasrør.tif"),
+  overwrite = TRUE
+)
 
 ############### Plotting for bilag ################
-
-map_baltic_sea <- st_read(file.path(PATHS$input_assessment_area, "/maps/BalticSeaMap/iho.shp")) %>%
-  st_transform(., crs = target_crs)
 map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
   st_transform(., crs = target_crs)
-
 viridis_start_color <- viridis_pal()(1)
 
-map_kabler <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = map_baltic_sea, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = kabler_area, aes(fill = value), color = NA) +
-  scale_fill_viridis_c(name = "Kabler", limits = c(0, 1)) +
-  coord_sf(
-    crs  = 25832,
-    xlim = c(696427, 775958),
-    ylim = c(6096053, 6179593)
-  ) +
+map_kabler_pa <- ggplot() +
+  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
+  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
+  geom_sf(data = kabler_area, color = "yellow", size = 1.5) +
+  color_viridis +
+  boundary +
   theme_minimal() +
-  theme(
-    axis.title.x     = element_blank(),
-    axis.title.y     = element_blank(),
-    axis.text.x      = element_blank(),
-    axis.text.y      = element_blank(),
-    legend.position  = c(0.81, 0.90),
-    legend.justification = "center",
-    legend.title     = element_text(size = 20),
-    legend.text      = element_text(size = 18),
-    axis.ticks = element_blank(),
-    plot.margin = grid::unit(c(0, 0, 0, 0), units = "mm"),
-    axis.ticks.length = unit(0, "pt")
-  ) +
-  annotation_north_arrow(
-    location    = "br",
-    which_north = "true",
-    style       = north_arrow_fancy_orienteering,
-    pad_x       = unit(3.5, "cm"),
-    pad_y       = unit(1.0, "cm"),
-    height      = unit(1.8, "cm"),
-    width       = unit(1.8, "cm")
-  ) +
-  annotation_scale(
-    location    = "br",
-    width_hint  = 0.05,
-    height      = unit(0.4, "cm"),
-    bar_cols    = c("black", "white"),
-    pad_x       = unit(0.2, "cm"),
-    pad_y       = unit(1.5, "cm"),
-    text_cex    = 1.2
-  )
+  my_theme +
+  north_arrow +
+  scale_bar
 
-map_kabler
 
-ggsave(plot = map_kabler,
-       filename = file.path(PATHS$output_pressure_png, "\\kabler.png"),
+map_kabler_pa
+
+ggsave(plot = map_kabler_pa,
+       filename = file.path(PATHS$output_pressure_png, "anlaeg/map_kabler_pa.png"),
        bg = NULL,
        height = 18,
        width = 18,
        dpi = 300)
+
+
+
+map_rør_pa <- ggplot() +
+  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
+  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
+  geom_sf(data = gasrør_area, color = "yellow", size = 1.5) +
+  color_viridis +
+  boundary +
+  theme_minimal() +
+  my_theme +
+  north_arrow +
+  scale_bar
+
+
+
+ggsave(plot = map_rør_pa,
+       filename = file.path(PATHS$output_pressure_png, "anlaeg/map_rør_pa.png"),
+       bg = NULL,
+       height = 18,
+       width = 18,
+       dpi = 300)
+
+
