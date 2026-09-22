@@ -4,17 +4,10 @@ PATHS <- set_project_paths()
 target_crs <- 25832
 
 # Indlæs grid og undersøgelsesområde
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(crs = target_crs)
-
 grid_area <- grid %>%
   mutate(area_grid = as.numeric(st_area(.))) %>%
   st_drop_geometry()
 
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(crs = target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
 
 ## ------------------------------------------------------------------
 ## 1. Indlæs vindmøllepark polygoner
@@ -38,7 +31,8 @@ turbines_koge <- st_intersection(turbines, assessment_area_dissolved) %>%
 calc_frac <- function(lag_sf, grid, grid_area) {
   intersection <- st_intersection(grid, lag_sf) %>%
     filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
-    mutate(area_intersect = as.numeric(st_area(.)))
+    mutate(area_intersect = as.numeric(st_area(.))) %>%
+    dplyr::select(-area_grid)
   
   if (nrow(intersection) == 0) {
     message("  → Ingen overlap med grid")
@@ -66,19 +60,13 @@ calc_frac <- function(lag_sf, grid, grid_area) {
 ## 3. Funktion til rasterisering
 ## ------------------------------------------------------------------
 make_raster <- function(frac_df, grid, assessment_area_vect, target_crs) {
-  r_template <- terra::rast(
-    extent     = terra::ext(assessment_area_vect),
-    resolution = 250,
-    crs        = paste0("EPSG:", target_crs)
-  )
-  
   grid_frac <- grid %>%
     left_join(frac_df %>% select(id, area_frac), by = "id") %>%
     mutate(area_frac = ifelse(is.na(area_frac), 0, area_frac))
   
   r <- terra::rasterize(
     terra::vect(grid_frac),
-    r_template,
+    grid_raster,
     field      = "area_frac",
     fun        = "max",
     background = NA
@@ -108,11 +96,9 @@ r_approved   <- make_raster(frac_approved,   grid, assessment_area_vect, target_
 r_planned    <- make_raster(frac_planned,    grid, assessment_area_vect, target_crs)
 
 # Gem tif filer
-terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "vindmoelleparker_production_frac.tif"), overwrite = TRUE)
-terra::writeRaster(r_approved,   file.path(PATHS$output_pressure_tif, "vindmoelleparker_approved_frac.tif"),   overwrite = TRUE)
-terra::writeRaster(r_planned,    file.path(PATHS$output_pressure_tif, "vindmoelleparker_planned_frac.tif"),    overwrite = TRUE)
-
-message("Alle tif filer gemt")
+terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_production_frac.tif"), overwrite = TRUE)
+terra::writeRaster(r_approved,   file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_approved_frac.tif"),   overwrite = TRUE)
+terra::writeRaster(r_planned,    file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_planned_frac.tif"),    overwrite = TRUE)
 
 ## ------------------------------------------------------------------
 ## 6. Lav sf til plot
@@ -147,7 +133,7 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_me
 
 viridis_start_color <- viridis_pal()(1)
 
-plot_vindmoeller <- function(sf_data, titel) {
+plot_vindmoeller <- function(sf_data) {
   ggplot() +
     geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
     geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
@@ -164,15 +150,20 @@ plot_vindmoeller <- function(sf_data, titel) {
 ## ------------------------------------------------------------------
 ## 8. Lav og gem plots
 ## ------------------------------------------------------------------
-map_production <- plot_vindmoeller(production_sf_plot, "Vindmølleparker\nProduction")
-map_approved   <- plot_vindmoeller(approved_sf_plot,   "Vindmølleparker\nApproved")
-map_planned    <- plot_vindmoeller(planned_sf_plot,    "Vindmølleparker\nPlanned")
+map_production <- plot_vindmoeller(production_sf_plot)
+map_approved   <- plot_vindmoeller(approved_sf_plot)
+map_planned    <- plot_vindmoeller(planned_sf_plot)
 
 map_production
 map_approved
 map_planned
 
-ggsave(plot = map_production, filename = file.path(PATHS$output_pressure_png, "\\vindmoelleparker_production.png"), bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_approved,   filename = file.path(PATHS$output_pressure_png, "\\vindmoelleparker_approved.png"),   bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_planned,    filename = file.path(PATHS$output_pressure_png, "\\vindmoelleparker_planned.png"),    bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_production, filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_production.png"), bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_approved,   filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_approved.png"),   bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_planned,    filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_planned.png"),    bg = NULL, height = 18, width = 18, dpi = 300)
+
+comb_map <- map_production + map_approved / map_planned + plot_layout(guides = "collect")
+
+ggsave(plot = comb_map,   filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_comb.png"),   bg = NULL, height = 18, width = 18, dpi = 300)
+
 
