@@ -4,9 +4,7 @@ source("scripts/00_setup.R")
 # Hent tilgængelige project paths
 PATHS <- set_project_paths()
 
-## Indlæs fyrtårne (EMODnet Heritage - Lighthouses)
-# NB: EMODnet-lag ligger typisk i EPSG:3035, så vi transformerer til target_crs
-#     med det samme for at undgå CRS-mismatch ved st_intersection nedenfor.
+## Indlæs fyrtårne (EMODnet)
 lighthouse <- st_read(file.path(PATHS$input_pressure,
                                 "fyrtaarn",
                                 "EMODnet_HA_Heritage_Lighthouses_202231016",
@@ -115,7 +113,7 @@ terra::writeRaster(
 map_fyr_pa <- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
   geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = fyr_koge, color = "yellow", size = 1.5) +
+  geom_sf(data = fyr_koge, color = "yellow", size = 3) +
   color_viridis +
   boundary +
   theme_minimal() +
