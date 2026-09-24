@@ -1,20 +1,6 @@
 #-------------------------------- Råstofsindvinding og områder udlagt til råstofsinvinding --------------------------------#
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
-target_crs <- 25832
-
-# Indlæs grid og undersøgelsesområde
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(crs = target_crs)
-
-grid_area <- grid %>%
-  mutate(area_grid = as.numeric(st_area(.))) %>%
-  st_drop_geometry()
-
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(crs = target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
 
 # ── 1. Hent råstofsområder fra WFS (Havplan) ─────────────────────────────────
 bbox_wgs84 <- st_bbox(st_transform(assessment_area_dissolved, crs = 4326))
@@ -52,19 +38,15 @@ raastof_expired_koge <- raastof_emodnet_koge %>%
   filter(STATUS != "Active")
 
 # ── 3. Funktion til fraktion-beregning ───────────────────────────────────────
-calc_frac <- function(lag_sf, grid, grid_area) {
+calc_frac <- function(lag_sf, grid) {
   intersection <- st_intersection(grid, lag_sf) %>%
     filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
-    mutate(area_intersect = as.numeric(st_area(.)))
-  
-  if (nrow(intersection) == 0) {
-    message("  → Ingen overlap med grid")
-    return(NULL)
-  }
+    mutate(area_intersect = as.numeric(st_area(.))) %>%
+    dplyr::select(-area_grid)
   
   frac <- intersection %>%
     st_drop_geometry() %>%
-    left_join(grid_area, by = "id") %>%
+    left_join(grid, by = "id") %>%
     mutate(
       area_frac = area_intersect / area_grid,
       area_frac = pmin(area_frac, 1)
@@ -76,19 +58,14 @@ calc_frac <- function(lag_sf, grid, grid_area) {
 
 # ── 4. Funktion til rasterisering ─────────────────────────────────────────────
 make_raster <- function(frac_df, grid, assessment_area_vect, target_crs) {
-  r_template <- terra::rast(
-    extent     = terra::ext(assessment_area_vect),
-    resolution = 250,
-    crs        = paste0("EPSG:", target_crs)
-  )
-  
+
   grid_frac <- grid %>%
     left_join(frac_df %>% select(id, area_frac), by = "id") %>%
     mutate(area_frac = ifelse(is.na(area_frac), 0, area_frac))
   
   r <- terra::rasterize(
     terra::vect(grid_frac),
-    r_template,
+    grid_raster,
     field      = "area_frac",
     fun        = "max",
     background = NA
@@ -99,13 +76,13 @@ make_raster <- function(frac_df, grid, assessment_area_vect, target_crs) {
 
 # ── 5. Beregn fraktioner ──────────────────────────────────────────────────────
 message("Beregner: Udviklingszone råstof")
-frac_udviklingszone <- calc_frac(udviklingszone_raastof, grid, grid_area)
+frac_udviklingszone <- calc_frac(udviklingszone_raastof, grid)
 
 message("Beregner: Aktive råstofsområder")
-frac_aktiv <- calc_frac(raastof_aktiv_koge, grid, grid_area)
+frac_aktiv <- calc_frac(raastof_aktiv_koge, grid)
 
 message("Beregner: Expired råstofsområder")
-frac_expired <- calc_frac(raastof_expired_koge, grid, grid_area)
+frac_expired <- calc_frac(raastof_expired_koge, grid)
 
 # ── 6. Lav rasters ────────────────────────────────────────────────────────────
 r_udviklingszone <- make_raster(frac_udviklingszone, grid, assessment_area_vect, target_crs)
@@ -115,11 +92,9 @@ r_expired        <- make_raster(frac_expired,         grid, assessment_area_vect
 # ── 7. Gem tif filer ──────────────────────────────────────────────────────────
 dir.create(file.path(PATHS$output_pressure_tif), recursive = TRUE, showWarnings = FALSE)
 
-terra::writeRaster(r_udviklingszone, file.path(PATHS$output_pressure_tif, "raastof_udviklingszone_frac.tif"), overwrite = TRUE)
-terra::writeRaster(r_aktiv,          file.path(PATHS$output_pressure_tif, "raastof_aktiv_frac.tif"),          overwrite = TRUE)
-terra::writeRaster(r_expired,         file.path(PATHS$output_pressure_tif, "raastof_expired_frac.tif"),        overwrite = TRUE)
-
-message("Alle tif filer gemt")
+terra::writeRaster(r_udviklingszone, file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_udviklingszone_frac.tif"), overwrite = TRUE)
+terra::writeRaster(r_aktiv,          file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_aktiv_frac.tif"),          overwrite = TRUE)
+terra::writeRaster(r_expired,         file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_expired_frac.tif"),        overwrite = TRUE)
 
 # ── 8. Lav sf objekter til plot ───────────────────────────────────────────────
 to_sf <- function(r, value_col) {
@@ -164,8 +139,8 @@ map_aktiv
 map_expired
 
 # ── 12. Gem plots ─────────────────────────────────────────────────────────────
-ggsave(plot = map_udviklingszone, filename = file.path(PATHS$output_pressure_png, "\\raastof_udviklingszone.png"), bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_aktiv,          filename = file.path(PATHS$output_pressure_png, "\\raastof_aktiv.png"),          bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_expired,         filename = file.path(PATHS$output_pressure_png, "\\raastof_expired.png"),        bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_udviklingszone, filename = file.path(PATHS$output_pressure_png,"fysisk_forstyrrelse", "\\raastof_udviklingszone.png"), bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_aktiv,          filename = file.path(PATHS$output_pressure_png,"fysisk_forstyrrelse", "\\raastof_aktiv.png"),          bg = NULL, height = 18, width = 18, dpi = 300)
+ggsave(plot = map_expired,         filename = file.path(PATHS$output_pressure_png,"fysisk_forstyrrelse", "\\raastof_expired.png"),        bg = NULL, height = 18, width = 18, dpi = 300)
 
 

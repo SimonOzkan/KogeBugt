@@ -1,7 +1,6 @@
 #-------------------------------- Holmene --------------------------------#
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
-target_crs <- 25832
 
 # ── Hent Holmene fra WFS ───────────────────────────────────────────────────
 bbox_wgs84 <- st_bbox(st_transform(assessment_area_dissolved, crs = 4326))
@@ -33,23 +32,23 @@ holmene <- havplan %>%
 holmene_grid <- st_intersection(grid, holmene) %>%
   filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
   mutate(holmene_area = as.numeric(st_area(.))) %>%
+  dplyr::select(-area_grid)
+
+# Check for intersection
+holmene_check <- holmene_grid %>%
   st_drop_geometry() %>%
   group_by(id) %>%
-  summarise(holmene_area = sum(holmene_area),.groups = "drop")
+  summarise(holmene_area_sum = sum(holmene_area))
 
 # ── Beregn fraktion per grid-celle ────────────────────────────────
-holmene_frac <- grid %>%                       # start fra HELE grid
-  left_join(holmene_grid, by = "id") %>%       # join arealerne på
+holmene_frac <- holmene_grid %>%                       # start fra HELE grid
+  left_join(st_drop_geometry(grid), by = "id") %>%       # join arealerne på
   mutate(
-    holmene_area = tidyr::replace_na(holmene_area, 0),   # ingen overlap = 0
     value = as.numeric(holmene_area) / as.numeric(area_grid),
     value = pmin(value, 1)
   ) %>%
   dplyr::select(id, value, geometry) %>%
   st_as_sf()
-
-message("Antal grid-celler i alt: ", nrow(holmene_frac),
-        " – heraf med Holmene: ", sum(holmene_frac$value > 0))
 
 
 # ── Lav raster ────────────────────────────────────────────────────
@@ -79,16 +78,16 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_me
 viridis_start_color <- viridis_pal()(1)  
 
 map_holmene <- ggplot() +
-  geom_sf(data = map_eu,  fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  #geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = holmene_frac,
-          aes(fill = value), color = NA) +
+  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
+  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_sf(data = holmene_frac, aes(fill = value), color = NA) +
   color_viridis+
   boundary+
   theme_minimal()+
   my_theme+
   north_arrow+
   scale_bar
+
 
 map_holmene
 
