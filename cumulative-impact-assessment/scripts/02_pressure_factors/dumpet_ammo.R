@@ -1,52 +1,52 @@
-#---------------------- Militær områder (polygonie) -----------------
-# Indlæs pakker og set path fra source setup fil
+#-------------------------------- Dumpet kemisk ammunition --------------------------------#
 source("scripts/00_setup.R")
+PATHS <- set_project_paths()
 
 ## ------------------------------------------------------------------
-## 1 Indlæs militærområder (se data folder / metadata_log)
+##  Indlæs ammunitiontærområder (se data folder / metadata_log)
 ## ------------------------------------------------------------------
 
-mili <- st_read(file.path(PATHS$input_pressure,
-                          "military",
-                          "EMODnet_HA_MilitaryAreas_20250314",
-                          "EMODnet_HA_MilitaryAreas_pg_20250314.shp")) %>%
+ammunition <- st_read(file.path(PATHS$input_pressure,
+                          "affald",
+                          "EMODnet_HA_WasteDisposal_DumpedMunitions_20260609",
+                          "EMODnet_HA_WasteDisposal_DumpedMunitions_pg_20260609.shp")) %>%
   st_transform(., crs = target_crs) %>%
   st_make_valid() %>%
   dplyr::distinct(.)
 
 
 ## ------------------------------------------------------------------
-## 2 Intersection med grid
+## Intersection med grid
 ## ------------------------------------------------------------------
 
-mili_oresund <- st_intersection(mili, grid) %>%
-  mutate(area_mili = st_area(.)) 
+ammunition_oresund <- st_intersection(ammunition, grid) %>%
+  mutate(area_ammunition = st_area(.)) 
 
 
-mili_area <- mili_oresund %>%
-  mutate(value = as.numeric(area_mili) / as.numeric(area_grid),
+ammunition_area <- ammunition_oresund %>%
+  mutate(value = as.numeric(area_ammunition) / as.numeric(area_grid),
          value = pmin(value, 1)) %>%
   st_make_valid()
 
 
 ## ------------------------------------------------------------------
-## 3 Konverter til raster og gem
+## Konverter til raster og gem
 ## ------------------------------------------------------------------
 
 
-mili_rast <- terra::rasterize(
-  terra::vect(mili_area),
+ammunition_rast <- terra::rasterize(
+  terra::vect(ammunition_area),
   grid_raster,
   field      = "value",
   fun        = "max",      # hvis overlap: tag max fraktion
   background = NA          # celler udenfor assessment area sættes NA
 )
 
-plot(mili_rast)
+plot(ammunition_rast)
 
 terra::writeRaster(
-  mili_rast,
-  filename  = file.path(PATHS$output_pressure_tif, "\\militaeromraader.tif"),
+  ammunition_rast,
+  filename  = file.path(PATHS$output_pressure_tif, "affald","ammunitiontaeromraader.tif"),
   overwrite = TRUE
 )
 
@@ -59,10 +59,10 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_me
   st_transform(., crs = target_crs)
 
 
-map_mili <- ggplot() +
+map_ammunition <- ggplot() +
   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
   geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = mili_area, aes(fill = value), color = NA) +
+  geom_sf(data = ammunition_area, aes(fill = value), color = NA) +
   color_viridis+
   boundary+
   theme_minimal()+
@@ -71,10 +71,10 @@ map_mili <- ggplot() +
   scale_bar
 
 
-map_mili
+map_ammunition
 
-ggsave(plot = map_mili,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg","militaeromraader.png"),
+ggsave(plot = map_ammunition,
+       filename = file.path(PATHS$output_pressure_png, "affald","ammunitiontaeromraader.png"),
        bg = NULL,
        height = 18,
        width = 18,

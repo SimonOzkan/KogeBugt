@@ -6,21 +6,11 @@ source("scripts/00_setup.R")
 # Hent tilgængelige project paths
 PATHS <- set_project_paths()
 
-# Sæt crs
-target_crs <- 25832
-
-# Indlæs undersøgelsesområde
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(., crs = target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
-
-
 ## ------------------------------------------------------------------
 ## 1. Udpak alle zip-filer (én gang - spring over hvis allerede udpakket)
 ## ------------------------------------------------------------------
 
-emodnet_dir <- file.path(PATHS$input_pressure, "/AIS skibe/emodnet")
+emodnet_dir <- file.path(PATHS$input_pressure, "AIS skibe","emodnet")
 
 zip_files <- list.files(emodnet_dir, pattern = "\\.zip$", full.names = TRUE, ignore.case = TRUE)
 
@@ -38,7 +28,7 @@ for (zf in zip_files) {
 
 
 ## ------------------------------------------------------------------
-## 2. Definer skibstype-mapper og funktionelle grupper
+## Definer skibstype-mapper og funktionelle grupper
 ## ------------------------------------------------------------------
 
 
@@ -60,20 +50,21 @@ ship_type_folders <- list(
 
 # Funktionelle grupper (se tidligere diskussion): gruppér efter pres-mekanisme, ikke rå skibstype
 functional_groups <- list(
-  Industri = c("cargo", "tanker", "passenger", "highspeed", "dredging"),
+  Industri_andre = c("cargo", "tanker", "passenger", "highspeed", "dredging","military","andre","service","tug","ukendt"),
   Rekreativ    = c("sailing", "pleasure"),
-  Fiskeri    = c("fishing"),
-  Andre = c("military","andre","service","tug","ukendt")
+  Fiskeri    = c("fishing")
+  #Andre = c("military","andre","service","tug","ukendt")
 )
 
 # Hvilke år skal indgå i gennemsnittet - 2024 NOTE: databrist fra juni (tabt satellitdata)
 # Skal vi have 2024 med?
 
-years_to_use <- 2019:2024
+years_to_use <- 2019:2023 
+
 
 
 ## ------------------------------------------------------------------
-## 3. Hjælpefunktion: indlæs, crop/mask og gennemsnit for én skibstype
+## Hjælpefunktion: indlæs, projicér til template og gennemsnit for én skibstype
 ## ------------------------------------------------------------------
 
 load_ship_type_average <- function(folder_name, years) {
@@ -92,25 +83,15 @@ load_ship_type_average <- function(folder_name, years) {
   
   selected_files <- tif_files[file_years %in% years]
   
-  if (length(selected_files) == 0) {
-    warning("Ingen filer matcher de valgte år for: ", folder_name,
-            " - tjek regex-mønsteret mod de faktiske filnavne")
-    return(NULL)
-  }
-  
-  message("  → ", folder_name, ": ", length(selected_files), " år fundet (",
-          paste(sort(file_years[file_years %in% years]), collapse = ", "), ")")
-  
-  # Indlæs, reprojicer, crop og mask hvert år
-  rasters_cropped <- lapply(selected_files, function(f) {
-    r <- terra::rast(f) %>%
-      terra::project("EPSG:25832")
-    terra::crop(r, assessment_area_vect) %>%
-      terra::mask(assessment_area_vect)
+  # Projicér til grid
+  rasters_aligned <- lapply(selected_files, function(f) {
+    terra::rast(f) %>%
+      terra::project(grid_raster, method = "bilinear")
   })
   
-  # Gennemsnit på tværs af årene
-  terra::mean(terra::rast(rasters_cropped), na.rm = TRUE)
+  # Gennemsnit på tværs af årene/månederne, derefter maskér til assessment area
+  avg <- terra::mean(terra::rast(rasters_aligned), na.rm = TRUE)
+  terra::mask(avg, assessment_area_vect)
 }
 
 
@@ -131,12 +112,8 @@ for (type_name in names(ship_type_folders)) {
 ## ------------------------------------------------------------------
 ## 5. Kombiner til funktionelle grupper
 ## ------------------------------------------------------------------
-
-r_template <- terra::rast(
-  extent     = terra::ext(assessment_area_vect),
-  resolution = 250,
-  crs        = "EPSG:25832"
-)
+# Alle skibstype-rastere ligger allerede på r_template (fra trin 3),
+# så vi kan summere direkte uden resample.
 
 group_rasters <- list()
 
@@ -148,18 +125,8 @@ for (group_name in names(functional_groups)) {
   rasters_in_group <- ship_type_rasters[types_in_group]
   rasters_in_group <- rasters_in_group[!sapply(rasters_in_group, is.null)]
   
-  if (length(rasters_in_group) == 0) {
-    warning("Ingen data tilgængelig for gruppe: ", group_name)
-    next
-  }
-  
-  # Resample alle til fælles 250m template før sammenlægning
-  rasters_resampled <- lapply(rasters_in_group, function(r) {
-    terra::resample(r, r_template, method = "bilinear")
-  })
-  
-  # Sum af timer/km2/måned på tværs af skibstyper 
-  group_sum <- Reduce(`+`, rasters_resampled)
+  # Sum af timer/km2/måned på tværs af skibstyper
+  group_sum <- Reduce(`+`, rasters_in_group)
   
   group_rasters[[group_name]] <- group_sum
 }
@@ -168,6 +135,8 @@ for (group_name in names(functional_groups)) {
 ## ------------------------------------------------------------------
 ## 6. Log-normaliser hver gruppe til 0-1
 ## ------------------------------------------------------------------
+# Skibstæthed er kraftigt højreskæv (få celler med meget høj trafik i sejlruterne),
+# derfor log-transformation FØR den lineære normalisering.
 
 normalize_log <- function(r) {
   r_log <- log1p(r)  # log(1+x), håndterer 0-værdier korrekt
@@ -175,7 +144,6 @@ normalize_log <- function(r) {
 }
 
 group_rasters_norm <- lapply(group_rasters, normalize_log)
-
 
 ## ------------------------------------------------------------------
 ## 7. Gem rastere
@@ -185,32 +153,28 @@ for (group_name in names(group_rasters_norm)) {
   
   terra::writeRaster(
     group_rasters[[group_name]],
-    filename  = file.path(PATHS$output_pressure_tif, paste0("\\shipping_", group_name, "_raw.tif")),
+    filename  = file.path(PATHS$output_pressure_tif,"skibsfart", paste0("\\shipping_", group_name, "_raw.tif")),
     overwrite = TRUE
   )
   
   terra::writeRaster(
     group_rasters_norm[[group_name]],
-    filename  = file.path(PATHS$output_pressure_tif, paste0("\\shipping_", group_name, "_norm.tif")),
+    filename  = file.path(PATHS$output_pressure_tif, "skibsfart",paste0("\\shipping_", group_name, "_norm.tif")),
     overwrite = TRUE
   )
   
-  message("Gemt: shipping_", group_name, "_norm.tif")
 }
 
 
 ############### Plotting for bilag ################
-
-map_baltic_sea <- st_read(file.path(PATHS$input_assessment_area, "/maps/BalticSeaMap/iho.shp")) %>%
-  st_transform(., crs = target_crs)
 map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
   st_transform(., crs = target_crs)
 
 group_titles <- list(
-  Industri = "Skibstrafik (Industri)",
+  Industri_andre = "Skibstrafik (Industri)",
   Rekreativt    = "Skibstrafik (Rekreativt)",
-  Fiskeri    = "Skibstrafik (Fiskeri)",
-  Andre   = "Skibstrafik (Andre)"
+  Fiskeri    = "Skibstrafik (Fiskeri)"
+  #Andre   = "Skibstrafik (Andre)"
 )
 
 for (group_name in names(group_rasters_norm)) {
@@ -235,7 +199,7 @@ for (group_name in names(group_rasters_norm)) {
     scale_bar
   
   ggsave(plot = map_shipping,
-         filename = file.path(PATHS$output_pressure_png, paste0("shipping_", group_name, ".png")),
+         filename = file.path(PATHS$output_pressure_png,"skibsfart" ,paste0("shipping_", group_name, ".png")),
          bg = NULL,
          height = 18,
          width = 18,
