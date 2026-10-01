@@ -48,10 +48,10 @@ ship_type_folders <- list(
   ukendt = "UNKNOWN"
 )
 
-# Funktionelle grupper (se tidligere diskussion): gruppér efter pres-mekanisme, ikke rå skibstype
+# Funktionelle grupper
 functional_groups <- list(
-  Industri_andre = c("cargo", "tanker", "passenger", "highspeed", "dredging","military","andre","service","tug","ukendt"),
-  Rekreativ    = c("sailing", "pleasure"),
+  Industri_andre = c("cargo", "tanker", "passenger", "highspeed", "dredging","military","andre","service","tug","ukendt","sailing", "pleasure"),
+  #Rekreativ    = c("sailing", "pleasure"),
   Fiskeri    = c("fishing")
   #Andre = c("military","andre","service","tug","ukendt")
 )
@@ -59,7 +59,7 @@ functional_groups <- list(
 # Hvilke år skal indgå i gennemsnittet - 2024 NOTE: databrist fra juni (tabt satellitdata)
 # Skal vi have 2024 med?
 
-years_to_use <- 2019:2023 
+years_to_use <- c(2018,2019,2020,2021,2022,2023)
 
 
 
@@ -89,14 +89,14 @@ load_ship_type_average <- function(folder_name, years) {
       terra::project(grid_raster, method = "bilinear")
   })
   
-  # Gennemsnit på tværs af årene/månederne, derefter maskér til assessment area
+  # Gennemsnit på tværs af årene, derefter maskér til assessment area
   avg <- terra::mean(terra::rast(rasters_aligned), na.rm = TRUE)
   terra::mask(avg, assessment_area_vect)
 }
 
 
 ## ------------------------------------------------------------------
-## 4. Indlæs og gennemsnit alle skibstyper
+## Indlæs og gennemsnit alle skibstyper
 ## ------------------------------------------------------------------
 
 ship_type_rasters <- list()
@@ -107,15 +107,18 @@ for (type_name in names(ship_type_folders)) {
     ship_type_folders[[type_name]], years_to_use
   )
 }
-
+ship_type_rasters$fishing
 
 ## ------------------------------------------------------------------
-## 5. Kombiner til funktionelle grupper
+## Kombiner til funktionelle grupper
 ## ------------------------------------------------------------------
-# Alle skibstype-rastere ligger allerede på r_template (fra trin 3),
-# så vi kan summere direkte uden resample.
+
+# Summer
+
 
 group_rasters <- list()
+
+
 
 for (group_name in names(functional_groups)) {
   
@@ -125,28 +128,28 @@ for (group_name in names(functional_groups)) {
   rasters_in_group <- ship_type_rasters[types_in_group]
   rasters_in_group <- rasters_in_group[!sapply(rasters_in_group, is.null)]
   
-  # Sum af timer/km2/måned på tværs af skibstyper
+  # Sum af timer/km2/år på tværs af skibstyper
   group_sum <- Reduce(`+`, rasters_in_group)
   
   group_rasters[[group_name]] <- group_sum
 }
 
-
+group_rasters$Rekreativ
 ## ------------------------------------------------------------------
-## 6. Log-normaliser hver gruppe til 0-1
+## Log-normaliser hver gruppe til 0-1
 ## ------------------------------------------------------------------
 # Skibstæthed er kraftigt højreskæv (få celler med meget høj trafik i sejlruterne),
 # derfor log-transformation FØR den lineære normalisering.
 
 normalize_log <- function(r) {
-  r_log <- log1p(r)  # log(1+x), håndterer 0-værdier korrekt
+  r_log <- log10(r+1)  #håndterer 0-værdier korrekt
   terra::scale_linear(r_log)
 }
 
 group_rasters_norm <- lapply(group_rasters, normalize_log)
 
 ## ------------------------------------------------------------------
-## 7. Gem rastere
+## Gem rastere
 ## ------------------------------------------------------------------
 
 for (group_name in names(group_rasters_norm)) {
@@ -205,5 +208,5 @@ for (group_name in names(group_rasters_norm)) {
          width = 18,
          dpi = 300)
   
-  message("Gemt plot: shipping_", group_name, ".png")
 }
+

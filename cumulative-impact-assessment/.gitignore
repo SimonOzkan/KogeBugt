@@ -1,6 +1,14 @@
-.RData
-.RDataTmp
-.RDataTmp1
-.Rhistory
+# R / RStudio session
 .Rproj.user/
-*.RData
+.Rhistory
+.RData
+.Ruserdata
+.RDataTmp*
+
+# Lokale outputs (data ligger i Teams, ikke i Git)
+outputs/*
+!outputs/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
