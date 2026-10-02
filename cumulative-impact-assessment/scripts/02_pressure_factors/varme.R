@@ -1,5 +1,4 @@
 #---------------------- Tilførsel af varme (HELCOM HOLAS 3) -----------------
-# HELCOM-lag for tilførsel af varme / termisk påvirkning (PL_06).
 # Laget dækker hele Østersøen (EPSG:3857, 1 km) og er allerede normaliseret.
 # Vi re-normaliserer 0-1 INDEN FOR Køge Bugt, så det flugter med de øvrige lag.
 # Normalisering sker EFTER maskering, så min/max kun kommer fra området.
@@ -38,7 +37,7 @@ varme_koge <- terra::mask(varme_250, assessment_area_vect)
 ## ------------------------------------------------------------------
 ## 4. Re-normalisér 0-1 inden for området
 ## ------------------------------------------------------------------
-# scale_linear bruger nu kun celler i Køge Bugt (fordi vi har maskeret først).
+# scale_linear bruger nu kun celler i Køge Bugt
 
 varme_norm <- terra::scale_linear(varme_koge)
 names(varme_norm) <- "value"

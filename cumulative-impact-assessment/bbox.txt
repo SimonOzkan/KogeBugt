@@ -1,0 +1,23 @@
+
+
+xmin <- 676027; xmax <- 775958
+ymin <- 6096053; ymax <- 6185593
+
+coords_poly <- matrix(c(
+  xmin, ymin,   # nederste venstre
+  xmax, ymin,   # nederste højre
+  xmax, ymax,   # øverste højre
+  xmin, ymax,   # øverste venstre
+  xmin, ymin    # luk ringen
+), ncol = 2, byrow = TRUE)
+
+polygon_assesment_area <- sf::st_polygon(list(coords_poly)) %>%
+  st_sfc(crs = 25832) %>%
+  st_sf(name = "Køge Bugt søgeområde", geometry = .)
+
+
+
+polygon_wgs84 <- st_transform(polygon_assesment_area, 4326)
+st_write(polygon_wgs84, file.path(PATHS$input_assessment_area, "koge_bugt_bbox.geojson"), delete_dsn = TRUE)
+
+st_write(polygon_wgs84,file.path(PATHS$input_assessment_area, "koge_bugt_bbox.shp"))
