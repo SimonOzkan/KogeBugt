@@ -18,19 +18,17 @@ plot(r_2013[["summer_2013_2022"]])
 
 r_mean_2013_2022 <- (r_2013[["summer_2013_2022"]]+r_2013[["winter_2013_2022"]])/2
 names(r_mean_2013_2022) <- "value"
-r_mean_2013_2022 <- terra::project(r_mean_2013_2022,crs(assessment_area_dissolved))
 
-marsvin_cropped <- terra::crop(r_mean_2013_2022, assessment_area_dissolved) %>%
-  terra::mask(assessment_area_dissolved)
-
-
-marsvin_250 <- terra::resample(marsvin_cropped,grid_raster, method = "bilinear")
+marsvin_250 <- terra::project(r_mean_2013_2022, grid_raster, method = "bilinear")
 
 terra::writeRaster(
   marsvin_250,
   filename = file.path(PATHS$output_ecosystem_tif,"pattedyr", "/marsvin_250.tif"),
   overwrite = TRUE
 )
+
+
+plot(marsvin_250)
 
 # Konverter til sf polygon (kun present beholdes, 0 -> NA fjerner "absent"-celler)
 marsvin_sf <- marsvin_250 %>%
