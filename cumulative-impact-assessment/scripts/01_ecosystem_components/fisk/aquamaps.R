@@ -9,6 +9,8 @@ PATHS <- set_project_paths()
 #devtools::install_github("raquamaps/aquamapsdata", dependencies = TRUE)
 
 library(aquamapsdata)
+default_db("sqlite")      # genetabler forbindelsen til den downloadede db
+am_search_fuzzy("cod")
 #download_db(force = TRUE)   # KØR ÉN GANG - downloader ~2 GB, pakker ud til ~10 GB
 
 # Hent miljøparametre
@@ -18,7 +20,8 @@ depth <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_depth_250m\\de
   terra::project(., "EPSG:25832", method = "near")
 temp_surf <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_surface_mean_resample_250m\\temperature_surface_mean_resample_250m.tif")) %>%
   terra::project(., "EPSG:25832", method = "near")
-
+temp_bot <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_bottom_mean_resample_250m\\temperature_bottom_mean_resample_250m.tif")) %>%
+  terra::project(., "EPSG:25832", method = "near")
 salinity <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_salinity_surface_mean_resample_250m\\salinity_surface_mean_resample_250m.tif")) %>%
   terra::project(., "EPSG:25832", method = "near")
 primprod <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_primary_productivity_surface_mean_resample_250m\\primary_productivity_surface_mean_resample_250m.tif")) %>%
@@ -38,13 +41,21 @@ arter <- tibble::tribble(
   "Torsk",            "Gadus",         "morhua",
   "Marsvin",          "Phocoena",      "phocoena",
   "Ål",               "Anguilla",       "anguilla",
-  "Sild",             "Clupea",         "harengus" 
+  "Sild",             "Clupea",         "harengus",
+  "Gråsæl",           "Halichoerus",     "grypus"
 )
 
-art <- arter %>% filter(navn == "Sild")      # eller: slice(arter, 1)
+art <- arter %>% filter(navn == "Gråsæl")      # eller: slice(arter, 1)
 
 key <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID
 hsp <- am_hspen() %>% filter(SpeciesID == key) %>% head(1) %>% collect()
+
+
+if(hsp$Layer == "s"){
+  temp = temp_surf
+}else{
+  temp = temp_bot
+}
 
 
 hspen_to_env <- function(hsp) {
@@ -65,7 +76,8 @@ hspen_to_env <- function(hsp) {
       pmin = hsp[[paste0(prefix, "PrefMin")]],
       pmax = hsp[[paste0(prefix, "PrefMax")]],
       max  = hsp[[paste0(prefix, "Max")]],
-      brug = isTRUE(hsp[[yn]] == 1)
+      brug = isTRUE(hsp[[yn]] == 1),
+      layer = hsp$Layer
     )
   })
 }
@@ -80,9 +92,11 @@ env <- env %>%
 
 # 2) Parameter input data lag — ét SpatRaster pr. envelope-variabel, i de RETTE enheder
 ##    (navnene skal matche env$par)
+
+
 lag <- list(
   depth    = depth,
-  temp     = temp_surf,
+  temp     = temp,
   salinity = salinity,
   primprod = primprod,
   icecon = icecon
