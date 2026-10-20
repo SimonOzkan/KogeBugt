@@ -72,9 +72,6 @@ map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_me
   st_transform(., crs = target_crs)
 
 
-
-viridis_start_color <- viridis_pal()(1) ##440154FF
-
 map_skibsvrag <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
   geom_sf(data = assessment_area_dissolved,
@@ -96,7 +93,7 @@ map_skibsvrag <- ggplot() +
 
 
 
-ggsave(plot = map_skibsvrag,
-       filename = file.path(PATHS$output_ecosystem_png, "fortid", "skibsvrag_punkt.png"),
-       bg = "white",    
-       width = 20, height = 20, units = "cm", dpi = 360)
+
+gem_trim(map_skibsvrag,
+         file.path(PATHS$output_ecosystem_png, "fortid", "skibsvrag.png"),
+         dpi = 360, width_cm = 18)
