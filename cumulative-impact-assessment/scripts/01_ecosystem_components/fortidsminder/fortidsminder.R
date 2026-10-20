@@ -11,6 +11,7 @@ PATHS <- set_project_paths()
 #https://www.kulturarv.dk/fundogfortidsminder/Download/
 anlaeg_areal <- st_read(file.path(PATHS$input_ecosystem, "fortidsminder/anlaeg_areal_all_25832_shp/anlaeg_areal_all_25832.shp")) 
 #Sverige fortidsminder og arkæologi
+#https://www.raa.se/hitta-information/oppna-data/oppna-data-portal/
 anlaeg_sverige <- st_read(file.path(PATHS$input_ecosystem, "fortidsminder/lämningar_sverige.gpkg"),layer = "lämningar_sverige_polygon")
 anlaeg_sverige <- st_transform(anlaeg_sverige, crs = target_crs)
 
