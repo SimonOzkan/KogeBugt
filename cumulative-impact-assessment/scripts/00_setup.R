@@ -19,13 +19,13 @@ if(length(new_packages)) {
 # Load packages
 lapply(required_packages, library, character.only = TRUE)
 
-grid <- st_read(file.path(PATHS$input_assessment_area, "shp", "250_grid.shp")) %>%
+grid_sf <- st_read(file.path(PATHS$input_assessment_area, "shp", "250_grid.shp")) %>%
   st_transform(., crs = target_crs) %>%
   mutate(area_grid = as.numeric(st_area(.))) 
 
-grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "geotif","assessment_area.tif"))
+grid_raster <- terra::rast(file.path(PATHS$input_assessment_area, "geotif","assessment_area_raster.tif"))
 
-assessment_area_dissolved <- grid %>%
+assessment_area_dissolved <- grid_sf %>%
   st_union(.)
 
 assessment_area_vect <- terra::vect(assessment_area_dissolved)

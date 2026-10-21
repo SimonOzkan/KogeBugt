@@ -20,21 +20,20 @@ am_search_fuzzy("cod")
 
 
 depth <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_depth_250m\\depth_250m.tif")) %>%
-  terra::project(., "EPSG:25832", method = "near")
+  terra::project(., grid_raster, method = "near")
 temp_surf <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_surface_mean_resample_250m\\temperature_surface_mean_resample_250m.tif")) %>%
-  terra::project(., "EPSG:25832", method = "near")
+  terra::project(., grid_raster, method = "near")
 temp_bot <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_bottom_mean_resample_250m\\temperature_bottom_mean_resample_250m.tif")) %>%
-  terra::project(., "EPSG:25832", method = "near")
+  terra::project(., grid_raster, method = "near")
 salinity <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_salinity_surface_mean_resample_250m\\salinity_surface_mean_resample_250m.tif")) %>%
-  terra::project(., "EPSG:25832", method = "near")
+  terra::project(., grid_raster, method = "near")
 primprod <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_primary_productivity_surface_mean_resample_250m\\primary_productivity_surface_mean_resample_250m.tif")) %>%
-  terra::project(., "EPSG:25832", method = "near")
+  terra::project(., grid_raster, method = "near")
 mxld <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_mixed_layer_thickness_mean_resample_250m\\mixed_layer_thickness_mean_resample_250m.tif")) %>%
-  terra::project(., "EPSG:25832", method = "near")
+  terra::project(., grid_raster, method = "near")
 
 icecon <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_sea_ice_fraction_mean_resample_250m\\sea_ice_fraction_mean_resample_250m.tif")) %>%
-  terra::project(., "EPSG:25832", method = "near")
-
+  terra::project(., grid_raster, method = "near")
 
 
 arter <- tibble::tribble(
@@ -59,6 +58,21 @@ if(hsp$Layer == "s"){
 }else{
   temp = temp_bot
 }
+
+# ##### Environmental envelope for Marsvin #### ##########################
+# env <- tibble::tribble(
+#   ~par,        ~min,   ~pmin,  ~pmax,   ~max,   ~brug,
+#   "depth",       0,      1,     60,     500,    TRUE,
+#   "temp",       -0.6,   5.44,  14.87,   24.5, TRUE,
+#   "salinity",    3.58,   24.18,  35.23,   40.44, TRUE,
+#   "primprod",    0.47,   2.64,  20.14,   48.18, FALSE,
+#   "icecon",     -0.99,   0,      0.01,    0.96,  TRUE,
+#   "oxygen",    118.57, 246.63, 366.92,  413.49, FALSE,
+#   "landdist",    0,      3,    119,     637,    FALSE
+# )
+##########################################################
+
+##### Environmental envelope for Gråsæl ###################### 
 env <- tibble::tribble(
   ~par,        ~min,   ~pmin,  ~pmax,   ~max,   ~brug,
   "depth",       0,      1,     50,     500,    TRUE,
@@ -70,7 +84,7 @@ env <- tibble::tribble(
   "landdist",    0,      3,    119,     637,    FALSE
 )
 
-
+####################################
 # 2) Parameter input data lag — ét SpatRaster pr. envelope-variabel, i de RETTE enheder
 ##    (navnene skal matche env$par)
 
@@ -120,30 +134,38 @@ plot(rast(suit_stack))   # ét suitability-kort pr. variabel
 plot(prob)               # samlet sandsynlighed 0-1
 
 
+fill_na <- function(r, template, w = 3, max_iter = 200) {
+  out <- r
+  for (i in seq_len(max_iter)) {
+    # tæl NA-celler, der ligger INDEN for template-området
+    na_tilbage <- global(is.na(out) & !is.na(template), "sum")[1, 1]
+    if (na_tilbage == 0) break
+    filled <- terra::focal(out, w = w, fun = "mean", na.rm = TRUE)  # nabo-gennemsnit
+    out    <- terra::cover(out, filled)                             # behold eksisterende, fyld kun NA
+  }
+  mask(out, template)   
+}
+
+prob_filled <- fill_na(prob, grid_raster, w = 3)
+
+plot(prob_filled)
+
 terra::writeRaster(
-  prob,
-  filename = file.path(PATHS$output_ecosystem_tif,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.tif", sep = "_" )),
+  prob_filled,
+  filename = file.path(PATHS$output_ecosystem_tif,"pattedyr/",paste(art$genus,art$species,"aquamaps_downscaled.tif", sep = "_" )),
   overwrite = TRUE
 )
 
 
 # Konverter til sf polygon (kun present beholdes, 0 -> NA fjerner "absent"-celler)
-prob_sf <- prob %>%
+prob_sf <- prob_filled %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid()
 
-# plot
-map_eu <- st_read(file.path(PATHS$input_assessment_area,"/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(.,crs = target_crs)
-
-
-# Sætter baggrundskortet i.e. hvor "value/fraction" = 0 til samme farve 
-viridis_start_color <- viridis_pal()(1)  
 
 map_prob <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  # geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = prob_sf, 
           aes(fill = value), color = NA) +
   color_viridis+
@@ -156,12 +178,10 @@ map_prob <- ggplot() +
 map_prob
 
 
-ggsave(plot = map_prob,
-       filename = file.path(PATHS$output_ecosystem_png,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.png", sep = "_" )),
-       bg = NULL,
-       height = 18,
-       width = 18,
-       dpi = 300)
+
+gem_trim(map_prob,
+         file.path(PATHS$output_ecosystem_png,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.png", sep = "_" )),
+         dpi = 360, width_cm = 18)
 
 
 

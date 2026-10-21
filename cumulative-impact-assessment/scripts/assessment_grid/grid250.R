@@ -13,7 +13,6 @@ source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
 res_m      <- 250          # celleopløsning (m)
-buffer_m   <- 500          # buffer omkring området (m)
 cell_area  <- res_m * res_m  # fuldt celleareal = 62500 m2
 
 
@@ -26,9 +25,7 @@ omrade_comb_split <- st_read(file.path(PATHS$input_assessment_area,"shp","koge_s
 
 omrade_comb_dissolved <- omrade_comb_split %>%
   st_union() %>%
-  st_buffer(dist = buffer_m) %>%
   st_sf(geometry = .)
-
 # ── 2. Definér et afrundet 250 m-skelet ──────────────────────────────────────
 # Snap bounding box UD til nærmeste 250 m, så cellegrænser ligger på "pæne"
 # koordinater (multipla af 250). Dette er det fælles fundament for BÅDE
@@ -57,7 +54,7 @@ grid_clip <- st_intersection(grid_250, omrade_comb_dissolved)
 
 grid_full <- grid_clip %>%
   mutate(area = as.numeric(st_area(.))) %>%
-  filter(area > cell_area * 0.999)   # tolerance ift. floating point
+  filter(area > cell_area * 0.1)   # Laver celler hvor der er op til 10% af arealet der er hav og sætter det til hav.
 
 # Vigtigt: brug de ORIGINALE (uklippede) firkantede celler for de id'er der
 # overlevede areal-filteret. Så er hver celle en perfekt 250 x 250 m firkant,
@@ -66,6 +63,8 @@ grid_sf <- grid_250 %>%
   filter(id %in% grid_full$id)
 
 message("Antal fulde celler i grid: ", nrow(grid_sf))
+
+
 
 # ── 5. Konverter til raster der matcher grid'et præcist ───────────────────────
 # Byg et tomt raster-skelet med SAMME extent, opløsning og CRS som grid'et.
@@ -97,19 +96,18 @@ st_write(grid_sf,
          append = FALSE, quiet = TRUE)
 
 terra::writeRaster(id_raster,
-                   file.path(PATHS$input_assessment_area,"geotif","assessment_area_id.tif"),
+                   file.path(PATHS$input_assessment_area,"geotif","assessment_area_raster_id.tif"),
                    overwrite = TRUE)
 
 terra::writeRaster(mask_raster,
-                   file.path(PATHS$input_assessment_area,"geotif","assessment_area.tif"),
+                   file.path(PATHS$input_assessment_area,"geotif","assessment_area_raster.tif"),
                    overwrite = TRUE)
 
 
 # ── Kontrolplot ──────────────────────────────────────────────────────────────
 plot(mask_raster, main = "Assessment area raster (250 m)")
+plot(st_geometry(omrade_comb_dissolved), add = TRUE)
 plot(st_geometry(grid_sf), add = TRUE, border = "grey40", lwd = 0.2)
-
-
 
 
 
