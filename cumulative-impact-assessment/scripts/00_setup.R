@@ -10,7 +10,7 @@ target_crs <- 25832
 # Install packages hvis de mangler
 required_packages <- c("terra","dplyr","sf","ggplot2", "tidyr", "purrr", "readr","readxl","patchwork", "raster","tidyterra",
                        "lubridate", "stringr", "forcats", "scales","gridExtra","grid","lattice","ggpubr","gt","writexl",
-                       "ggspatial","httr","ows4R","viridis", "viridisLite","mgcv","gdistance","magick")
+                       "ggspatial","httr","ows4R","viridis", "viridisLite","mgcv","gdistance","magick","terrainr")
 
 new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 if(length(new_packages)) {
@@ -19,7 +19,7 @@ if(length(new_packages)) {
 # Load packages
 lapply(required_packages, library, character.only = TRUE)
 
-grid_sf <- st_read(file.path(PATHS$input_assessment_area, "shp", "250_grid.shp")) %>%
+grid_sf <- st_read(file.path(PATHS$input_assessment_area, "shp", "250_grid.gpkg")) %>%
   st_transform(., crs = target_crs) %>%
   mutate(area_grid = as.numeric(st_area(.))) 
 
@@ -32,11 +32,18 @@ assessment_area_vect <- terra::vect(assessment_area_dissolved)
 
 ### Bagrundskortet
 # udsnit med margin (i dit CRS)
-bb <- st_as_sfc(st_bbox(st_buffer(assessment_area_dissolved, 15000)))
+# bb <- st_as_sfc(st_bbox(st_buffer(assessment_area_dissolved, 15000)))
+# 
+# tiles <- maptiles::get_tiles(bb, provider = "Esri.WorldShadedRelief",
+#                              crop = TRUE, zoom = 11)
+# tiles <- project(tiles, "EPSG:25832")
+# 
+# writeRaster(tiles, file.path(PATHS$input_assessment_area, "maps","basemap_tiles",
+#                              "esri_shaded_relief_25832.tif"), overwrite = TRUE)
 
-tiles <- get_tiles(bb, provider = "Esri.WorldShadedRelief",
-                   crop = TRUE, zoom = 12)
-tiles <- project(tiles, "EPSG:25832")
+#
+tiles <- rast(file.path(PATHS$input_assessment_area, "maps","basemap_tiles",
+                        "esri_shaded_relief_25832.tif"))
 
 
 viridis_start_color <- viridis_pal()(1)
@@ -104,6 +111,22 @@ scale_bar <-  annotation_scale(
   pad_y      = unit(1.2, "cm"),
   text_cex   = 1.2
 )
+
+
+
+fill_na <- function(r, template, w = 3, max_iter = 200) {
+  out <- r
+  for (i in seq_len(max_iter)) {
+    # tæl NA-celler, der ligger INDEN for template-området
+    na_tilbage <- global(is.na(out) & !is.na(template), "sum")[1, 1]
+    if (na_tilbage == 0) break
+    filled <- terra::focal(out, w = w, fun = "mean", na.rm = TRUE)  # nabo-gennemsnit
+    out    <- terra::cover(out, filled)                             # behold eksisterende, fyld kun NA
+  }
+  mask(out, template)   
+}
+
+
 
 gem_trim <- function(plot, path, dpi = 360, width_cm = 18) {
   # 1) gem RIGELIGT stort i høj opløsning (så resize kun nedskalerer = skarpt)

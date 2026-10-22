@@ -9,7 +9,21 @@
 #   5. Konverter til raster der matcher grid'et PRÆCIST (samme cellenet)
 #   6. Gem både .shp og .tif
 ###############################################################################
-source("scripts/00_setup.R")
+target_crs <- 25832
+# Install packages hvis de mangler
+required_packages <- c("terra","dplyr","sf","ggplot2", "tidyr", "purrr", "readr","readxl","patchwork", "raster","tidyterra",
+                       "lubridate", "stringr", "forcats", "scales","gridExtra","grid","lattice","ggpubr","gt","writexl",
+                       "ggspatial","httr","ows4R","viridis", "viridisLite","mgcv","gdistance","magick","terrainr")
+
+new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(new_packages)) {
+  install.packages(new_packages)
+}
+# Load packages
+lapply(required_packages, library, character.only = TRUE)
+
+
+source(here::here("config/paths.R"))
 PATHS <- set_project_paths()
 
 res_m      <- 250          # celleopløsning (m)
@@ -93,6 +107,10 @@ message("Antal ikke-NA celler i raster: ", n_raster,
 # ── 7. Gem output ────────────────────────────────────────────────────────────
 st_write(grid_sf,
          file.path(PATHS$input_assessment_area,"shp", "250_grid.shp"),
+         append = FALSE, quiet = TRUE)
+
+st_write(grid_sf,
+         file.path(PATHS$input_assessment_area,"shp", "250_grid.gpkg"),
          append = FALSE, quiet = TRUE)
 
 terra::writeRaster(id_raster,
