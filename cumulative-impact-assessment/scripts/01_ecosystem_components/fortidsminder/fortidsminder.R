@@ -30,9 +30,9 @@ df_sve_union <- st_intersection(anlaeg_sverige, assessment_area_dissolved) %>%
 
 
 #### Intersection med grid og best areal og fraktionen 
-df_dk_koge <- st_intersection(df_dk_union,grid) 
+df_dk_koge <- st_intersection(df_dk_union,grid_sf) 
 
-df_sve_koge <- st_intersection(df_sve_union,grid) 
+df_sve_koge <- st_intersection(df_sve_union,grid_sf) 
 
 df1 <- df_dk_koge %>%
   mutate(A_fortid = as.numeric(st_area(.))) %>%
@@ -50,7 +50,7 @@ df2 <- df_sve_koge %>%
 
 # Find fraktion are hver gridcelle dækket af fortidsminder og sæt til value for raster (0-1)
 df_bind <- bind_rows(df1,df2) %>%
-  left_join(grid) %>%
+  left_join(grid_sf) %>%
   mutate(value = A_fortid / area_grid) %>%
   st_as_sf() %>%
   st_make_valid()
@@ -71,9 +71,24 @@ fortids_rast_masked <- terra::mask(fortids_rast, grid_raster)
 
 plot(fortids_rast_masked)
 
+fill_na <- function(r, template, w = 3, max_iter = 200) {
+  out <- r
+  for (i in seq_len(max_iter)) {
+    # tæl NA-celler, der ligger INDEN for template-området
+    na_tilbage <- global(is.na(out) & !is.na(template), "sum")[1, 1]
+    if (na_tilbage == 0) break
+    filled <- terra::focal(out, w = w, fun = "mean", na.rm = TRUE)  # nabo-gennemsnit
+    out    <- terra::cover(out, filled)                             # behold eksisterende, fyld kun NA
+  }
+  mask(out, template)   
+}
 
+fortids_rast_filled <- fill_na(fortids_rast_masked, grid_raster, w = 3)
+
+
+### gem raster
 terra::writeRaster(
-  fortids_rast_masked,
+  fortids_rast_filled,
   filename = file.path(PATHS$output_ecosystem_tif, "fortid","fortids.tif"),
   overwrite = TRUE
 )
@@ -81,13 +96,10 @@ terra::writeRaster(
 
 
 ############### Plotting for bilag ################
-fortids_sf <- fortids_rast_masked %>%
+fortids_sf <- fortids_rast_filled %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid()
-
-map_eu <- st_read(file.path(PATHS$input_assessment_area,"/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(.,crs = target_crs)
 
 
 # Sætter baggrundskortet i.e. hvor "value/fraction" = 0 til samme farve 

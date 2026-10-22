@@ -18,23 +18,35 @@ default_db("sqlite")      # genetabler forbindelsen til den downloadede db
 
 depth <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_depth_250m\\depth_250m.tif")) %>%
   terra::project(., grid_raster, method = "near")
-temp_surf <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_surface_mean_resample_250m\\temperature_surface_mean_resample_250m.tif")) %>%
+depth <- fill_na(depth, grid_raster, w = 3)
+
+temp <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_surface_mean_resample_250m\\temperature_surface_mean_resample_250m.tif")) %>%
   terra::project(., grid_raster, method = "near")
-temp_bot <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_bottom_mean_resample_250m\\temperature_bottom_mean_resample_250m.tif")) %>%
-  terra::project(., grid_raster, method = "near")
+temp <- fill_na(temp, grid_raster, w = 3)
+
+## Alle arter er modelleret fra overflade lag 
+# temp_bot <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_temperature_bottom_mean_resample_250m\\temperature_bottom_mean_resample_250m.tif")) %>%
+#   terra::project(., grid_raster, method = "near")
 salinity <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_salinity_surface_mean_resample_250m\\salinity_surface_mean_resample_250m.tif")) %>%
   terra::project(., grid_raster, method = "near")
-primprod <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_primary_productivity_surface_mean_resample_250m\\primary_productivity_surface_mean_resample_250m.tif")) %>%
-  terra::project(., grid_raster, method = "near")
-mxld <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_mixed_layer_thickness_mean_resample_250m\\mixed_layer_thickness_mean_resample_250m.tif")) %>%
-  terra::project(., grid_raster, method = "near")
+salinity <- fill_na(salinity, grid_raster, w = 3)
 
 icecon <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_sea_ice_fraction_mean_resample_250m\\sea_ice_fraction_mean_resample_250m.tif")) %>%
   terra::project(., grid_raster, method = "near")
-
-depth_tst <- terra::mask(depth, grid_raster)
-
-
+icecon <- fill_na(icecon, grid_raster, w = 3)
+# Primary production fra Copernicus 
+#https://data.marine.copernicus.eu/viewer/expert?view=viewer&crs=epsg:4326&t=1767139200000&z=-0.5016462206840515&center=12.448322445580079,55.35093677732264&zoom=16.8&layers=H4sIAM.j2WoAAz2MywqCQBhG3_VfG01jq9mZSAgFkbaQiJ.RmXRgLuKNTHz3JoJ233cOnPsCbmhkFzvXiR7Ysgag_Sy7VACDQ3TK0zhLIjzf.CqS6IqHY4yEhEh2dFsZaXo0TmDJNZZ1hWbGy67YGKSEhiTc2radIIB3aoV8AaMkAPUto6Yea1dnFdcS2JPrXnrXJ0INytZ5M5rScqX.auJ6lGdlgfnG73Bf3JP18QHVNcWMxQAAAA--&basemap=dark&objv2=H4sIAM.j2WoAA3WP0QrCIBSG3_Vci_Tm0nkZ1HX3Q4Y1W0Kb4hw0wndPC0ZB3X7f_c85f.MA04GA1lJAcNEqzF5PIBIPi9PJHN4s2V7bQQe.gFjl0d6W3o5Jnq31nRlVeKWbhpSYlsWWE1RVmFUbXhYSfVKKGSsYp5kSXDNSE.6P.t6wUikjAuet0z6YfP_r1KiG.Gq7hxhlauGVu_aZlDHT7mTvIIKfdZRPFgS_QQwBAAA-
+primprod_path <- file.path(PATHS$input_phys_chem_geo, "\\_ags_primary_productivity_surface_mean_resample_250m\\BAL-MYP-ERGOM_BGC-AnnualMeans-2024.nc")
+npp <- terra::rast(primprod_path, subds = "nppv")
+# overflade = øverste dybdelag (depth er "positive down", så lag 1 = overflade)
+npp_surf <- npp[[1]]
+# sikr NA for fill-value (hvis terra ikke selv har sat det)
+npp_surf <- terra::classify(npp_surf, cbind(-999, NA))
+# nc'en er lon/lat -> sæt CRS hvis den mangler
+if (is.na(crs(npp_surf)) || crs(npp_surf) == "") crs(npp_surf) <- "EPSG:4326"
+# reprojicér + align til dit 250 m-grid i ét skridt
+primprod_250 <- terra::project(npp_surf, grid_raster, method = "bilinear")
+primprod<-fill_na(primprod_250, grid_raster, w =3)
 
 
 arter <- tibble::tribble(
@@ -59,37 +71,30 @@ arter <- tibble::tribble(
 
 ## Tjekker om det er de samme parametre der skal bruges for alle fisk eller om oxygen eller distance to land er relevant for nogle
 
-# Lav tom dataframe til append
-df_empty <- data.frame(matrix(ncol = 56, nrow = 0))
-x <- names(hsp)
-colnames(df_empty) <- x
-
-
-for(i in seq_len(nrow(arter))){
-
-art <- slice(arter, i)    
-
-key_i <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID[1]
-hsp_i <- am_hspen() %>% filter(SpeciesID == key_i) %>% head(1) %>% collect()
-
-df_empty <- rbind(df_empty, hsp_i)
-
-}
-# Dette viser at alle fisk kan modelleres baseret på de samme parametre
-art_YN_tjek <- df_empty %>% 
-  dplyr::select(dplyr::ends_with("YN"))
+# # Lav tom dataframe til append
+# df_empty <- data.frame(matrix(ncol = 56, nrow = 0))
+# x <- names(hsp)
+# colnames(df_empty) <- x
+# 
+# 
+# for(i in seq_len(nrow(arter))){
+# 
+# art <- slice(arter, i)    
+# 
+# key_i <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID[1]
+# hsp_i <- am_hspen() %>% filter(SpeciesID == key_i) %>% head(1) %>% collect()
+# 
+# df_empty <- rbind(df_empty, hsp_i)
+# 
+# }
+# # Dette viser at alle fisk kan modelleres baseret på de samme parametre
+# art_YN_tjek <- df_empty %>% 
+#   dplyr::select(dplyr::ends_with("YN"))
 
 ### 
 
-# art <- arter %>% filter(navn == "Ising")      # eller: slice(arter, 1)
-# 
-# key <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID
-# hsp <- am_hspen() %>% filter(SpeciesID == key) %>% head(1) %>% collect()
 
-
-
-
-art <- arter %>% filter(navn == "Sandkutling")      # eller: slice(arter, 1)
+art <- arter %>% filter(navn == "Makrel")      # eller: slice(arter, 1)
 
 key <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID
 hsp <- am_hspen() %>% filter(SpeciesID == key) %>% head(1) %>% collect()
@@ -130,9 +135,9 @@ hspen_to_env <- function(hsp) {
 env <- hspen_to_env(hsp)
 
 ### Sætter parametre til FALSE manuelt
-env <- env %>%
-  mutate(brug = case_when(par == "primprod" ~ FALSE,
-                          .default = brug))
+# env <- env %>%
+#   mutate(brug = case_when(par == "primprod" ~ FALSE,
+#                           .default = brug))
 
 
 # 2) Parameter input data lag — ét SpatRaster pr. envelope-variabel, i de RETTE enheder
@@ -180,45 +185,25 @@ for (p in intersect(brug$par, names(lag))) {
   prob <- prob * s
 }
 names(prob) <- "value"
-#plot(rast(suit_stack))   # ét suitability-kort pr. variabel
+plot(rast(suit_stack))   # ét suitability-kort pr. variabel
 plot(prob)               # samlet sandsynlighed 0-1
 
 
-
-fill_na <- function(r, template, w = 3, max_iter = 200) {
-  out <- r
-  for (i in seq_len(max_iter)) {
-    # tæl NA-celler, der ligger INDEN for template-området
-    na_tilbage <- global(is.na(out) & !is.na(template), "sum")[1, 1]
-    if (na_tilbage == 0) break
-    filled <- terra::focal(out, w = w, fun = "mean", na.rm = TRUE)  # nabo-gennemsnit
-    out    <- terra::cover(out, filled)                             # behold eksisterende, fyld kun NA
-  }
-  mask(out, template)   
-}
-
-prob_filled <- fill_na(prob, grid_raster, w = 3)
-
-#plot(prob_filled)
+plot(prob)
 
 
-terra::writeRaster(
-  prob_filled,
-  filename = file.path(PATHS$output_ecosystem_tif,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.tif", sep = "_" )),
-  overwrite = TRUE
-)
+# terra::writeRaster(
+#   prob,
+#   filename = file.path(PATHS$output_ecosystem_tif,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.tif", sep = "_" )),
+#   overwrite = TRUE
+# )
 
 
 # Konverter til sf polygon 
-prob_sf <- prob_filled %>%
+prob_sf <- prob %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid()
-
-# plot
-map_eu <- st_read(file.path(PATHS$input_assessment_area,"/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(.,crs = target_crs)
-
 
 map_prob <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
@@ -231,13 +216,13 @@ map_prob <- ggplot() +
   north_arrow+
   scale_bar
 
-#map_prob
+map_prob
 
 
-
-gem_trim(map_prob,
-         file.path(PATHS$output_ecosystem_png,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.png", sep = "_" )),
-         dpi = 360, width_cm = 18)
+# 
+# gem_trim(map_prob,
+#          file.path(PATHS$output_ecosystem_png,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.png", sep = "_" )),
+#          dpi = 360, width_cm = 18)
 
 
 
