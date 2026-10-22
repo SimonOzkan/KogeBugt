@@ -38,12 +38,7 @@ icecon <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_sea_ice_fract
 
 arter <- tibble::tribble(
   ~navn,              ~genus,          ~species,
-  "Skrubbe",          "Platichthys",   "flesus",
-  "Rødspætte",        "Pleuronectes",  "platessa",
-  "Torsk",            "Gadus",         "morhua",
   "Marsvin",          "Phocoena",      "phocoena",
-  "Ål",               "Anguilla",       "anguilla",
-  "Sild",             "Clupea",         "harengus",
   "Gråsæl",           "Halichoerus",     "grypus"
 )
 

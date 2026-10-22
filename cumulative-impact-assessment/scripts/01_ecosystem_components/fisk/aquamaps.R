@@ -32,31 +32,75 @@ mxld <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_mixed_layer_thi
 icecon <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_sea_ice_fraction_mean_resample_250m\\sea_ice_fraction_mean_resample_250m.tif")) %>%
   terra::project(., grid_raster, method = "near")
 
+depth_tst <- terra::mask(depth, grid_raster)
 
 
 
 
 arter <- tibble::tribble(
-  ~navn,              ~genus,          ~species,
-  "Skrubbe",          "Platichthys",   "flesus",
-  "Rødspætte",        "Pleuronectes",  "platessa",
-  "Torsk",            "Gadus",         "morhua",
-  "Marsvin",          "Phocoena",      "phocoena",
-  "Ål",               "Anguilla",       "anguilla",
-  "Sild",             "Clupea",         "harengus",
-  "Gråsæl",           "Halichoerus",     "grypus")
+  ~navn,          ~genus,            ~species,     ~kategori,
+  "Ål",           "Anguilla",        "anguilla",   "Ål",
+  "Sild",         "Clupea",          "harengus",   "Erhvervsfisk",
+  "Makrel",       "Scomber",         "scombrus",   "Erhvervsfisk",
+  "Sej",          "Pollachius",      "virens",     "Erhvervsfisk",
+  "Brisling",     "Sprattus",        "sprattus",   "Erhvervsfisk",
+  "Hornfisk",     "Belone",          "belone",     "Erhvervsfisk",
+  "Laks",         "Salmo",           "salar",      "Erhvervsfisk",
+  "Skrubbe",      "Platichthys",     "flesus",     "Erhvervsfisk",
+  "Pighvar",      "Scophthalmus",    "maximus",    "Erhvervsfisk",
+  "Rødspætte",    "Pleuronectes",    "platessa",   "Erhvervsfisk",
+  "Sandkutling",  "Pomatoschistus",  "minutus",    "Ikke-kommerciel",
+  "Torsk",        "Gadus",           "morhua",     "Ikke-kommerciel",
+  "Ålekvabbe",    "Zoarces",         "viviparus",  "Ikke-kommerciel",
+  "Ulk",          "Myoxocephalus",   "scorpius",   "Ikke-kommerciel",
+  "Ising",        "Limanda",         "limanda",    "Ikke-kommerciel"
+)
 
-art <- arter %>% filter(navn == "Sild")      # eller: slice(arter, 1)
+
+## Tjekker om det er de samme parametre der skal bruges for alle fisk eller om oxygen eller distance to land er relevant for nogle
+
+# Lav tom dataframe til append
+df_empty <- data.frame(matrix(ncol = 56, nrow = 0))
+x <- names(hsp)
+colnames(df_empty) <- x
+
+
+for(i in seq_len(nrow(arter))){
+
+art <- slice(arter, i)    
+
+key_i <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID[1]
+hsp_i <- am_hspen() %>% filter(SpeciesID == key_i) %>% head(1) %>% collect()
+
+df_empty <- rbind(df_empty, hsp_i)
+
+}
+# Dette viser at alle fisk kan modelleres baseret på de samme parametre
+art_YN_tjek <- df_empty %>% 
+  dplyr::select(dplyr::ends_with("YN"))
+
+### 
+
+# art <- arter %>% filter(navn == "Ising")      # eller: slice(arter, 1)
+# 
+# key <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID
+# hsp <- am_hspen() %>% filter(SpeciesID == key) %>% head(1) %>% collect()
+
+
+
+
+art <- arter %>% filter(navn == "Sandkutling")      # eller: slice(arter, 1)
 
 key <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID
 hsp <- am_hspen() %>% filter(SpeciesID == key) %>% head(1) %>% collect()
 
 
-if(hsp$Layer == "s"){
-  temp = temp_surf
-}else{
-  temp = temp_bot
-}
+
+# if(hsp$Layer == "s"){
+#   temp = temp_surf
+# }else{
+#   temp = temp_bot
+# }
 
 
 hspen_to_env <- function(hsp) {
@@ -136,7 +180,7 @@ for (p in intersect(brug$par, names(lag))) {
   prob <- prob * s
 }
 names(prob) <- "value"
-plot(rast(suit_stack))   # ét suitability-kort pr. variabel
+#plot(rast(suit_stack))   # ét suitability-kort pr. variabel
 plot(prob)               # samlet sandsynlighed 0-1
 
 
@@ -155,7 +199,7 @@ fill_na <- function(r, template, w = 3, max_iter = 200) {
 
 prob_filled <- fill_na(prob, grid_raster, w = 3)
 
-plot(prob_filled)
+#plot(prob_filled)
 
 
 terra::writeRaster(
@@ -187,7 +231,7 @@ map_prob <- ggplot() +
   north_arrow+
   scale_bar
 
-map_prob
+#map_prob
 
 
 
