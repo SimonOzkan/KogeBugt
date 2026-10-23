@@ -6,9 +6,6 @@ source("scripts/00_setup.R")
 # Hent tilgængelige project paths
 PATHS <- set_project_paths()
 
-# Sæt crs
-target_crs <- 25832
-
 # For den danske del anvendes Sanjina-model, for den svenske del af Øresund suppleres der
 # med HELCOM HOLAS 3, da Sanjina-modellen ikke dækker svensk territorium. Begge kilder er i
 # praksis binære presence-lag: Sanjina-laget er allerede tærskelværdi-sat af forfatteren
@@ -19,19 +16,8 @@ target_crs <- 25832
 
 # Indlæs grid og undersøgelsesområde fra de forskellige project paths
 
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(., crs = target_crs)
+assessment_area <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\koge_split.shp"))
 
-grid_area <- grid %>%
-  mutate(area_grid = st_area(.)) %>%
-  st_drop_geometry(.)
-
-assessment_area <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area.shp"))
-
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(., crs = target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
 
 
 # Svensk del af undersøgelsesområdet (bruges til at afgrænse hvor HELCOM-data anvendes)
@@ -59,7 +45,6 @@ HELCOM_zostera_sf <- HELCOM_zostera_cropped %>%
 # Afgræns til svensk del af undersøgelsesområdet
 HELCOM_zostera_sverige <- st_intersection(HELCOM_zostera_sf, svensk)
 
-
 ## ------------------------------------------------------------------
 ## 2. Zostera fra Sanjina (kontinuert suitability model, dansk del)
 ## ------------------------------------------------------------------
@@ -67,8 +52,16 @@ HELCOM_zostera_sverige <- st_intersection(HELCOM_zostera_sf, svensk)
 zostera_dk_tif <- terra::rast(file.path(PATHS$input_ecosystem, "/Zostera/SDM_DK_Kattegat_extended_SUS_July26.tif")) %>%
   terra::project(., "EPSG:25832", method = "near")
 
+zostera_dk_tif_new <-terra::rast(file.path(PATHS$input_ecosystem, "/Zostera/SDM_probab_DK_Kattegat_extended_SUS_aug26.tif")) %>%
+  terra::project(., "EPSG:25832", method = "near")
+
 zostera_cropped <- terra::crop(zostera_dk_tif, assessment_area_vect) %>%
   terra::mask(assessment_area_vect)
+
+zostera_cropped_new <- terra::crop(zostera_dk_tif_new, assessment_area_vect) %>%
+  terra::mask(assessment_area_vect)
+
+
 
 # Konverter til sf polygon (kun celler med værdi > 0)
 zostera_sf <- zostera_cropped %>%
@@ -168,56 +161,55 @@ zostera_union <- zostera_combined %>%
   st_as_sf()
 
 
-zostera_intersected <- st_intersection(zostera_union, grid) %>%
-  mutate(area_zostera = st_area(.))
+zostera_intersected <- st_intersection(zostera_union, grid_sf) %>%
+  mutate(area_zostera = as.numeric(st_area(.)))
+
+
 
 zostera_area <- zostera_intersected %>%
-  left_join(grid_area, by = "id") %>%
-  mutate(value = as.numeric(area_zostera) / as.numeric(area_grid),
-         value = pmin(value, 1))
-
+  st_drop_geometry() %>%
+  group_by(id) %>%
+  summarise(area_zost_sum = sum(area_zostera, na.rm = TRUE), .groups = "drop")
+  
+zostera_frac <- left_join(grid_sf, zostera_area) %>%
+  mutate(value = area_zost_sum / area_grid,
+         value= ifelse(is.na(value), 0, value)) 
+  
 
 ## ------------------------------------------------------------------
 ## 8. Rasterize og gem .tif
 ## ------------------------------------------------------------------
 
-r_template <- terra::rast(
-  extent     = terra::ext(assessment_area_vect),
-  resolution = 250,
-  crs        = "EPSG:25832"
-)
 
 zostera_complete_raster <- terra::rasterize(
-  terra::vect(zostera_area),
-  r_template,
+  terra::vect(zostera_frac),
+  grid_raster,
   field      = "value",
   fun        = "max",      # der bør ikke være overlap efter union, derfor tages max
-  background = NA
+  background = 0
 )
 
+# Masked
+zostera_complete_raster<- terra::mask(zostera_complete_raster, grid_raster)
 plot(zostera_complete_raster, main = "Zostera arealfraktion (kombineret Sanjina + HELCOM)")
 
 terra::writeRaster(
   zostera_complete_raster,
-  filename  = file.path(PATHS$output_ecosystem_tif, "\\Zostera.tif"),
+  filename  = file.path(PATHS$output_ecosystem_tif, "vigtige_habs","Zostera.tif"),
   overwrite = TRUE
 )
 
 
 ############### Plotting for bilag ################
 
-
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-
-
-
-viridis_start_color <- viridis_pal()(1)  
+zostera_complete_raster_sf <- zostera_complete_raster %>%
+  terra::as.polygons(dissolve = FALSE) %>%
+  st_as_sf() %>%
+  st_make_valid()
 
 map_zostera <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = zostera_area,
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
+  geom_sf(data = zostera_complete_raster_sf,
           aes(fill = value),color = NA) +
   color_viridis+
   boundary+
@@ -230,7 +222,7 @@ map_zostera <- ggplot() +
 map_zostera
 
 ggsave(plot = map_zostera,
-       filename = file.path(PATHS$output_ecosystem_png, "\\Zostera.png"),
+       filename = file.path(PATHS$output_ecosystem_png, "vigtige_habs","Zostera.png"),
        bg = NULL,
        height = 18,
        width = 18,
