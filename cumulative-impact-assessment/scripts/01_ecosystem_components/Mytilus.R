@@ -6,25 +6,14 @@ source("scripts/00_setup.R")
 # Hent tilgængelige project paths
 PATHS <- set_project_paths()
 
-# Sæt crs
-target_crs <- 25832
+########################## VIGITIGT ####################
 
-# Indlæs grid og undersøgelsesområde fra de forskellige project paths
+# Dette var et af de første datalag der blev lavet, men da Blåmuslinger har en environmental envelope er blåmuslinger datalag med aquamaps downscaling
+# 
+############## R fil "aquamaps" under fisk :) ################
 
-grid <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\250_grid_minus_land.shp")) %>%
-  st_transform(., crs = target_crs)
+# 
 
-grid_area <- grid %>%
-  mutate(area_grid = st_area(.)) %>%
-  st_drop_geometry(.)
-
-assessment_area_dissolved <- st_read(file.path(PATHS$input_assessment_area, "\\shp\\assessment_area_dissolved.shp")) %>%
-  st_transform(., crs = target_crs)
-
-assessment_area_vect <- terra::vect(assessment_area_dissolved)
-
-# Raster med 250x250 opløsning for undersøgelsesområdet (bruges som resample-template)
-assessment_area_rast <- terra::rast(file.path(PATHS$input_assessment_area, "\\geotif\\assessment_area.tif"))
 
 
 ## ------------------------------------------------------------------

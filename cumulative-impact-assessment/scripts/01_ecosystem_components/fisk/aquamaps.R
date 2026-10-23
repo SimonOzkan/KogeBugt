@@ -65,8 +65,11 @@ arter <- tibble::tribble(
   "Torsk",        "Gadus",           "morhua",     "Ikke-kommerciel",
   "Ålekvabbe",    "Zoarces",         "viviparus",  "Ikke-kommerciel",
   "Ulk",          "Myoxocephalus",   "scorpius",   "Ikke-kommerciel",
-  "Ising",        "Limanda",         "limanda",    "Ikke-kommerciel"
+  "Ising",        "Limanda",         "limanda",    "Ikke-kommerciel",
+  "Blå_musling",  "Mytilus",          "edulis",     "Skalddyr"
 )
+
+
 
 
 ## Tjekker om det er de samme parametre der skal bruges for alle fisk eller om oxygen eller distance to land er relevant for nogle
@@ -94,7 +97,7 @@ arter <- tibble::tribble(
 ### 
 
 
-art <- arter %>% filter(navn == "Makrel")      # eller: slice(arter, 1)
+art <- arter %>% filter(navn == "Blå_musling")      # eller: slice(arter, 1)
 
 key <- am_search_exact(Genus = art$genus, Species = art$species)$SpeciesID
 hsp <- am_hspen() %>% filter(SpeciesID == key) %>% head(1) %>% collect()
@@ -189,15 +192,20 @@ plot(rast(suit_stack))   # ét suitability-kort pr. variabel
 plot(prob)               # samlet sandsynlighed 0-1
 
 
-plot(prob)
 
-
+### Blå musling
 # terra::writeRaster(
 #   prob,
-#   filename = file.path(PATHS$output_ecosystem_tif,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.tif", sep = "_" )),
+#   filename = file.path(PATHS$output_ecosystem_tif,"vigtige_habs",paste(art$genus,art$species,"aquamaps_downscaled.tif", sep = "_" )),
 #   overwrite = TRUE
 # )
 
+# fisk
+# terra::writeRaster(
+#   prob,
+#   filename = file.path(PATHS$output_ecosystem_tif,"fisk",paste(art$genus,art$species,"aquamaps_downscaled.tif", sep = "_" )),
+#   overwrite = TRUE
+# )
 
 # Konverter til sf polygon 
 prob_sf <- prob %>%
@@ -219,11 +227,15 @@ map_prob <- ggplot() +
 map_prob
 
 
-# 
+# Fisk
 # gem_trim(map_prob,
 #          file.path(PATHS$output_ecosystem_png,"fisk/",paste(art$genus,art$species,"aquamaps_downscaled.png", sep = "_" )),
 #          dpi = 360, width_cm = 18)
 
+# Blå musling #
+gem_trim(map_prob,
+         file.path(PATHS$output_ecosystem_png,"vigtige_habs/",paste(art$genus,art$species,"aquamaps_downscaled.png", sep = "_" )),
+         dpi = 360, width_cm = 18)
 
 
 
