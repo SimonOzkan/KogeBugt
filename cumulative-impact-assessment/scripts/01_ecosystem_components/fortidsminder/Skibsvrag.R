@@ -82,9 +82,6 @@ terra::writeRaster(
 ## ------------------------------------------------------------------
 #Ved plotting anvendes punkt data til visualisering
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-
 
 map_skibsvrag <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief

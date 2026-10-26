@@ -46,14 +46,29 @@ euseamap_koge_hab <- euseamap_koge %>%
 
 koge_unikke_hab <- unique(euseamap_koge_hab$All2019DL2)
 
-ggplot() +
+benthic_plot <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = euseamap_koge_hab,
           aes(fill = All2019DL2),
-          alpha = 0.5, color = NA) +
+          alpha = 1, color = NA) +
   scale_fill_viridis_d(name = "Habitattype", na.value = "red") +
   theme_minimal() +
-  labs(title = "EUSeaMap habitater — Køge Bugt",
-       subtitle = "Overlap synligt som farveblanding")
+  labs(title = "Storskala havbundshabitater") +
+  boundary+
+  theme(plot.title = element_text(size = 30),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 22),
+        legend.position = "inside",
+        legend.position.inside = c(0.9,0.9))+
+  north_arrow+
+  scale_bar
+ggsave(plot = benthic_plot,
+       filename = file.path(PATHS$output_ecosystem_png,"/broad_scale_hab/benhtic_habs_samlet.png"),
+       bg = NULL,
+       height = 18,
+       width = 18,
+       dpi = 300)
+
 
 euseamap_koge <- euseamap_koge_hab %>%
   dplyr::select(All2019DL2, geom)
