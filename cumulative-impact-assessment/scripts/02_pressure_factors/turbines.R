@@ -3,10 +3,6 @@ source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 target_crs <- 25832
 
-# Indlæs grid og undersøgelsesområde
-grid_area <- grid %>%
-  mutate(area_grid = as.numeric(st_area(.))) %>%
-  st_drop_geometry()
 
 
 ## ------------------------------------------------------------------
@@ -17,7 +13,6 @@ turbines <- st_read(file.path(PATHS$input_pressure, "/havvind/EMODnet_HA_Energy_
   st_make_valid()
 
 # Tjek unikke STATUS værdier
-message("Unikke STATUS værdier: ")
 print(unique(turbines$STATUS))
 
 turbines_koge <- st_intersection(turbines, assessment_area_dissolved) %>%
@@ -28,30 +23,25 @@ turbines_koge <- st_intersection(turbines, assessment_area_dissolved) %>%
 ## ------------------------------------------------------------------
 ## 2. Funktion til fraktion-beregning
 ## ------------------------------------------------------------------
-calc_frac <- function(lag_sf, grid, grid_area) {
-  intersection <- st_intersection(grid, lag_sf) %>%
-    filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
+calc_frac <- function(lag_sf, grid_sf, grid_area) {
+  intersection <- st_intersection(grid_sf, lag_sf) %>%
     mutate(area_intersect = as.numeric(st_area(.))) %>%
-    dplyr::select(-area_grid)
+    st_drop_geometry() %>%
+    group_by(id) %>%
+    summarise(area_intersect = sum(as.numeric(area_intersect), na.rm = TRUE), .groups = "drop")
   
   if (nrow(intersection) == 0) {
     message("  → Ingen overlap med grid")
     return(NULL)
   }
   
-  frac <- intersection %>%
-    st_drop_geometry() %>%
-    left_join(grid_area, by = "id") %>%
+  frac <- grid_sf %>%
+    left_join(intersection, by = "id") %>%
     mutate(
-      area_frac = area_intersect / area_grid,
-      area_frac = pmin(area_frac, 1)
+      value = tidyr::replace_na(as.numeric(area_intersect), 0),  # ingen vindmøller
+      value = value / area_grid
     ) %>%
-    group_by(id) %>%
-    summarise(
-      area_frac = sum(area_frac, na.rm = TRUE),
-      .groups   = "drop"
-    ) %>%
-    mutate(area_frac = pmin(area_frac, 1))
+    st_make_valid()
   
   return(frac)
 }
@@ -60,19 +50,17 @@ calc_frac <- function(lag_sf, grid, grid_area) {
 ## 3. Funktion til rasterisering
 ## ------------------------------------------------------------------
 make_raster <- function(frac_df, grid, assessment_area_vect, target_crs) {
-  grid_frac <- grid %>%
-    left_join(frac_df %>% select(id, area_frac), by = "id") %>%
-    mutate(area_frac = ifelse(is.na(area_frac), 0, area_frac))
+  
   
   r <- terra::rasterize(
-    terra::vect(grid_frac),
+    terra::vect(frac_df),
     grid_raster,
-    field      = "area_frac",
+    field      = "value",
     fun        = "max",
     background = NA
   )
-  r[r == 0] <- NA
   return(r)
+
 }
 
 ## ------------------------------------------------------------------
@@ -82,18 +70,19 @@ turbines_production <- turbines_koge %>% filter(STATUS == "Production")
 turbines_approved   <- turbines_koge %>% filter(STATUS == "Approved")
 turbines_planned    <- turbines_koge %>% filter(STATUS == "Planned")
 
-frac_production <- calc_frac(turbines_production, grid, grid_area)
+frac_production <- calc_frac(turbines_production, grid_sf, grid_area)
 
-frac_approved <- calc_frac(turbines_approved, grid, grid_area)
+frac_approved <- calc_frac(turbines_approved, grid_sf, grid_area)
 
-frac_planned <- calc_frac(turbines_planned, grid, grid_area)
+frac_planned <- calc_frac(turbines_planned, grid_sf, grid_area)
 
 ## ------------------------------------------------------------------
 ## 5. Lav rasters
 ## ------------------------------------------------------------------
-r_production <- make_raster(frac_production, grid, assessment_area_vect, target_crs)
-r_approved   <- make_raster(frac_approved,   grid, assessment_area_vect, target_crs)
-r_planned    <- make_raster(frac_planned,    grid, assessment_area_vect, target_crs)
+r_production <- make_raster(frac_production, grid_raster)
+r_approved   <- make_raster(frac_approved,   grid_raster)
+r_planned    <- make_raster(frac_planned,    grid_raster)
+
 
 # Gem tif filer
 terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_production_frac.tif"), overwrite = TRUE)
@@ -108,7 +97,6 @@ to_sf <- function(r) {
     terra::as.polygons(dissolve = FALSE) %>%
     st_as_sf() %>%
     st_make_valid() %>%
-    rename("value" = 1) %>%
     st_transform(crs = target_crs)
 }
 
@@ -125,18 +113,10 @@ sf_turbne_comb <- bind_rows(production_sf_plot,approved_sf_plot) %>%
 ## ------------------------------------------------------------------
 ## 7. Indlæs baggrundskort og plot-funktion
 ## ------------------------------------------------------------------
-map_baltic_sea <- st_read(file.path(PATHS$input_assessment_area, "/maps/BalticSeaMap/iho.shp")) %>%
-  st_transform(., crs = target_crs)
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-
-
-viridis_start_color <- viridis_pal()(1)
 
 plot_vindmoeller <- function(sf_data) {
   ggplot() +
-    geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-    geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+    geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
     geom_sf(data = sf_data, aes(fill = value), color = NA) +
     color_viridis+
     boundary+
@@ -159,8 +139,17 @@ map_approved
 map_planned
 
 ggsave(plot = map_production, filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_production.png"), bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_approved,   filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_approved.png"),   bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_planned,    filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_planned.png"),    bg = NULL, height = 18, width = 18, dpi = 300)
+gem_trim(map_production,
+         file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_production.png"),
+         dpi = 360, width_cm = 18)
+
+gem_trim(map_approved,
+         file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_approved.png"),
+         dpi = 360, width_cm = 18)
+
+gem_trim(map_planned,
+         file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_planned.png"),
+         dpi = 360, width_cm = 18)
 
 comb_map <- map_production + map_approved / map_planned + plot_layout(guides = "collect")
 
