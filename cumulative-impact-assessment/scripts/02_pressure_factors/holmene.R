@@ -29,11 +29,8 @@ holmene <- havplan %>%
   mutate(navn = "Holmene")
 
 # ── Intersection med grid ──────────────────────────────────────────────────
-holmene_grid <- st_intersection(grid, holmene) %>%
-  filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
-  mutate(holmene_area = as.numeric(st_area(.))) %>%
-  dplyr::select(-area_grid)
-
+holmene_grid <- st_intersection(grid_sf, holmene) %>%
+  mutate(holmene_area = as.numeric(st_area(.))) 
 # Check for intersection
 holmene_check <- holmene_grid %>%
   st_drop_geometry() %>%
@@ -41,14 +38,12 @@ holmene_check <- holmene_grid %>%
   summarise(holmene_area_sum = sum(holmene_area))
 
 # ── Beregn fraktion per grid-celle ────────────────────────────────
-holmene_frac <- holmene_grid %>%                       # start fra HELE grid
-  left_join(st_drop_geometry(grid), by = "id") %>%       # join arealerne på
-  mutate(
-    value = as.numeric(holmene_area) / as.numeric(area_grid),
-    value = pmin(value, 1)
+holmene_frac <- grid_sf %>%                       # start fra HELE grid
+  left_join(holmene_check, by = "id") %>%       # join arealerne på
+  mutate(value = tidyr::replace_na(holmene_area_sum,0),
+    value = as.numeric(value) / as.numeric(area_grid)
   ) %>%
-  dplyr::select(id, value, geometry) %>%
-  st_as_sf()
+  st_make_valid()
 
 
 # ── Lav raster ────────────────────────────────────────────────────
@@ -72,14 +67,8 @@ terra::writeRaster(
 # ── Plot til bilag ────────────────
 
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(crs = target_crs)
-
-viridis_start_color <- viridis_pal()(1)  
-
 map_holmene <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = holmene_frac, aes(fill = value), color = NA) +
   color_viridis+
   boundary+
@@ -92,11 +81,6 @@ map_holmene <- ggplot() +
 map_holmene
 
 # ── Gem plot ───────────────────────────────────────────────────────────────
-ggsave(
-  plot     = map_holmene,
-  filename = file.path(PATHS$output_pressure_png, "anlaeg","Holmene.png"),
-  bg       = NULL,
-  height   = 18,
-  width    = 18,
-  dpi      = 300
-)
+gem_trim(map_holmene,
+         file.path(PATHS$output_pressure_png, "anlaeg\\holmene.png"),
+         dpi = 360, width_cm = 18)
