@@ -13,7 +13,6 @@ lighthouse <- st_read(file.path(PATHS$input_pressure,
 
 #--------- intersection med undersøgelsesområdet
 fyr_koge <- st_intersection(lighthouse, assessment_area_dissolved)
-message("Antal fyrtårne i undersøgelsesområdet: ", paste(nrow(fyr_koge)))
 
 # Læg 25 m buffer omkring hvert fyrtårn (punkter -> cirkler)
 fyr_koge_buffer <- fyr_koge %>%
@@ -23,20 +22,17 @@ fyr_koge_buffer <- fyr_koge %>%
 
 # For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
 # så arealet beregnes celle-for-celle
-fyr_koge_buffer_grid <- st_intersection(fyr_koge_buffer, grid) %>%
+fyr_koge_buffer_grid <- st_intersection(fyr_koge_buffer, grid_sf) %>%
   mutate(area_fyr = st_area(.)) %>%
   st_drop_geometry() %>%
   group_by(id) %>%
-  summarise(area_fyr_id = sum(area_fyr), .groups = "drop")
+  summarise(area_fyr_id = sum(as.numeric(area_fyr), na.rm = TRUE), .groups = "drop")
 
-fyr_koge_gridded <- grid %>%                            # start fra HELE grid
+fyr_koge_gridded <- grid_sf %>%                            # start fra HELE grid
   left_join(fyr_koge_buffer_grid, by = "id") %>%        # join fyr-arealer på
   mutate(
     area_fyr_id = tidyr::replace_na(as.numeric(area_fyr_id), 0),  # ingen fyr = 0
-    value = as.numeric(area_fyr_id) / as.numeric(area_grid),
-    value = pmin(value, 1)
-  ) %>%
-  dplyr::select(id, value, geometry) %>%
+    value = as.numeric(area_fyr_id) / as.numeric(area_grid)  ) %>%
   st_as_sf()
 
 
@@ -61,28 +57,35 @@ terra::writeRaster(
 )
 
 ############### Plotting for bilag ################
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
+
+
 viridis_start_color <- viridis_pal()(1)
 
 map_fyr_buffer <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = fyr_koge_buffer, fill = "yellow", color = NA) +
-  color_viridis +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
+  geom_sf(data = assessment_area_dissolved,
+          aes(fill = "Ikke tilstede"), color = "black", alpha = 1) +
+  geom_sf(data = fyr_koge,
+          aes(fill = "Tilstede"), shape = 21, color = "black", size = 1.5) +
+  scale_fill_manual(name = NULL,
+                    values = c("Tilstede" = "red", "Ikke tilstede" = "#9FBDD8"))+
   boundary +
   theme_minimal() +
   my_theme +
+  theme(legend.position = c(.95, .95),
+        legend.justification = c("right", "top"),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.text = element_text(size = 16))+
   north_arrow +
   scale_bar
 map_fyr_buffer
 
-ggsave(plot = map_fyr_buffer,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg", "fyrtaarne_buffer.png"),
-       bg = "white",
-       height = 18,
-       width = 18,
-       dpi = 300)
+
+
+gem_trim(map_fyr_buffer,
+         file.path(PATHS$output_pressure_png, "anlaeg", "fyrtaarn.png"),
+         dpi = 360, width_cm = 18)
+
 
 
 # - Fyrtårne uden buffer ---------------------------
