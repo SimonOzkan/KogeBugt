@@ -29,24 +29,25 @@ stoj_kont <- terra::rast(file.path(PATHS$input_pressure,
 
 stoj_kont_250 <- terra::project(stoj_kont, grid_raster, method = "bilinear")
 
+terra::global(stoj_kont_250, max, na.rm = TRUE)
 
 ## ------------------------------------------------------------------
 ## 3. Maskér til assessment-området
 ## ------------------------------------------------------------------
 
-stoj_kont_koge <- terra::mask(stoj_kont_250, assessment_area_vect)
+stoj_kont_koge <- terra::mask(stoj_kont_250, grid_raster)
 
 
 ## ------------------------------------------------------------------
 ## 4. Re-normalisér 0-1 inden for området
 ## ------------------------------------------------------------------
 
-stoj_kont_norm <- terra::scale_linear(stoj_kont_koge)
-names(stoj_kont_norm) <- "value"
+stoj_kont_koge_fill <- fill_na(stoj_kont_koge, grid_raster, w = 3)
 
-plot(stoj_kont_norm)
-terra::writeRaster(stoj_kont_norm,
-                   file.path(PATHS$output_pressure_tif, "stoj_kontinuerlig_norm.tif"),
+plot(stoj_kont_koge_fill)
+
+terra::writeRaster(stoj_kont_koge_fill,
+                   file.path(PATHS$output_pressure_tif, "stoj_kontinuerlig.tif"),
                    overwrite = TRUE)
 
 
@@ -54,19 +55,16 @@ terra::writeRaster(stoj_kont_norm,
 ## 5. Plotting for bilag
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
 
-stoj_kont_sf <- stoj_kont_norm %>%
+stoj_kont_sf <- stoj_kont_koge_fill %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_transform(crs = target_crs) %>%
-  st_make_valid()
+  st_make_valid() %>%
+  rename("value" = "PL_04")
 
 map_stoj_kont <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = stoj_kont_sf, aes(fill = value), color = NA) +
   color_viridis +
   boundary +
@@ -76,6 +74,10 @@ map_stoj_kont <- ggplot() +
   scale_bar
 map_stoj_kont
 
-ggsave(plot = map_stoj_kont,
-       filename = file.path(PATHS$output_pressure_png, "lyd_energi","stoj_kontinuerlig.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+
+
+gem_trim(map_stoj_kont,
+         file.path(PATHS$output_pressure_png, "lyd_energi\\stoj_kontinuerlig.png"),
+         dpi = 360, width_cm = 18)
+
+
