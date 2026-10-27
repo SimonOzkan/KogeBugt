@@ -131,13 +131,11 @@ map_pipes <- ggplot() +
 
 
 
-ggsave(map_kabler, filename = file.path(PATHS$output_pressure_png, "kabler", "map_kabler_pa.png"),
-       bg = NULL,
-       height = 18,
-       width = 18,
-       dpi = 300)
-ggsave(map_pipes,    filename = file.path(PATHS$output_pressure_png, "kabler", "map_rør_pa.png"),     
-       bg = NULL,
-       height = 18,
-       width = 18,
-       dpi = 300)
+
+gem_trim(map_kabler,
+         file.path(PATHS$output_pressure_png, "kabler", "map_kabler_pa.png"),
+         dpi = 360, width_cm = 18)
+
+gem_trim(map_pipes,
+         file.path(PATHS$output_pressure_png, "kabler", "map_rør_pa.png"),
+         dpi = 360, width_cm = 18)

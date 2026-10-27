@@ -32,7 +32,7 @@ baltic_mask <- depth                                   # alle værdier = 1, EPSG
 bb_baltic   <- sf::st_bbox(terra::project(baltic_mask, "EPSG:4326"))   # -> download-bbox
 
 
-####### ---------- Dette henter de 276 raster lag for bund ilt koncentration i mmol/m3 ############# Filerne er gemt i "out_dir" som .nc
+###### ---------- Dette henter de 276 raster lag for bund ilt koncentration i mmol/m3 ############# Filerne er gemt i "out_dir" som .nc
 # for (y in 2023:2025) {
 #   status <- system2(path_cm, c(
 #     "subset",
@@ -149,7 +149,7 @@ map_iltsvind <- ggplot() +
 map_iltsvind
 
 ggsave(plot = map_iltsvind,
-       filename = file.path(PATHS$output_ecosystem_png,"iltsvind","klfa.png"),
+       filename = file.path(PATHS$output_ecosystem_png,"iltsvind","iltsvind.png"),
        bg = NULL,
        height = 18,
        width = 18,

@@ -23,8 +23,6 @@ klapning_HELCOM <- st_read(file.path(PATHS$input_pressure, "\\klapning\\_ags_dep
 ## ------------------------------------------------------------------
 ## 2 Intersection med grid
 ## ------------------------------------------------------------------
-
-
 klapning_oresund <- st_intersection(klapning, grid_sf) %>%
   filter(SITE_NAME != "Avlandshage Klapplads") %>%  # står ikke på Miljøministeriets oversigt over klappladser (er udgået)
   mutate(area_klapning = st_area(.)) %>%

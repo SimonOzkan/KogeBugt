@@ -20,11 +20,12 @@ bypass <- st_read(request_bypass) %>%
   st_transform(crs = target_crs) %>%
   st_make_valid()
 
+
+
 ## ------------------------------------------------------------------
 ## Intersect med undersøgelsesområde
 ## ------------------------------------------------------------------
-bypass_koge <- st_intersection(bypass, grid) %>%
-  filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
+bypass_koge <- st_intersection(bypass, grid_sf) %>%
   st_make_valid()
 
 ## ------------------------------------------------------------------
@@ -33,21 +34,16 @@ bypass_koge <- st_intersection(bypass, grid) %>%
 bypass_grid <- bypass_koge %>%
   mutate(area_intersect = as.numeric(st_area(.))) %>%
   st_drop_geometry() %>%
-  mutate(
-    area_frac = area_intersect / as.numeric(area_grid),
-    area_frac = pmin(area_frac, 1)
-  ) %>%
   group_by(id) %>%
-  summarise(area_frac = sum(area_frac, na.rm = TRUE), .groups = "drop")
+  summarise(area_frac = sum(area_intersect, na.rm = TRUE), .groups = "drop")
 
 # Start fra HELE grid, så celler uden bypass får eksplicit 0
-bypass_frac <- grid %>%
+bypass_frac <- grid_sf %>%
   left_join(bypass_grid, by = "id") %>%
   mutate(
     area_frac = tidyr::replace_na(area_frac, 0),   # ingen bypass = 0
-    value     = pmin(area_frac, 1)
+    value = as.numeric(area_frac)/ as.numeric(area_grid)
   ) %>%
-  dplyr::select(id, value, geometry) %>%
   st_as_sf()
 
 message("Grid-celler i alt: ", nrow(bypass_frac),
@@ -67,25 +63,30 @@ r_bypass <- terra::rasterize(
 )
 
 plot(r_bypass)
+
+global(is.na(r_bypass) & !is.na(grid_raster), "sum")[1, 1]
+
+r_bypass_fill <- fill_na(r_bypass, grid_raster, w = 3)
+plot(r_bypass_fill)
 # Gem tif
 terra::writeRaster(
   r_bypass,
-  file.path(PATHS$output_pressure_tif, "anlaeg","bypass_frac.tif"),
+  file.path(PATHS$output_pressure_tif, "anlaeg","bypass.tif"),
   overwrite = TRUE
 )
 
 ## ------------------------------------------------------------------
-## Plot (kun visuelt)
+## Plot 
 ## ------------------------------------------------------------------
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(crs = target_crs)
 
-viridis_start_color <- viridis_pal()(1)  
+bypass_sf <- r_bypass_fill %>%
+  terra::as.polygons(dissolve = FALSE) %>%
+  st_as_sf() %>%
+  st_make_valid()
 
 map_bypass <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = bypass_koge, fill = "yellow", color = NA, size = 1.5) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
+  geom_sf(data = bypass_sf, aes(fill = value), color = NA) +
   color_viridis+
   boundary+
   theme_minimal()+
@@ -93,14 +94,10 @@ map_bypass <- ggplot() +
   north_arrow+
   scale_bar
 
+
 map_bypass
 
+gem_trim(map_bypass,
+         file.path(PATHS$output_pressure_png, "anlaeg", "bypass.png"),
+         dpi = 360, width_cm = 18)
 
-ggsave(
-  plot     = map_bypass,
-  filename = file.path(PATHS$output_pressure_png, "anlaeg", "bypass.png"),
-  bg       = "white",
-  height   = 18,
-  width    = 18,
-  dpi      = 300
-)
