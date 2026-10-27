@@ -1,6 +1,7 @@
 #---------------------- Militær områder (polygonie) -----------------
 # Indlæs pakker og set path fra source setup fil
 source("scripts/00_setup.R")
+PATHS <- set_project_paths()
 
 ## ------------------------------------------------------------------
 ## 1 Indlæs militærområder (se data folder / metadata_log)
@@ -11,21 +12,25 @@ mili <- st_read(file.path(PATHS$input_pressure,
                           "EMODnet_HA_MilitaryAreas_20250314",
                           "EMODnet_HA_MilitaryAreas_pg_20250314.shp")) %>%
   st_transform(., crs = target_crs) %>%
-  st_make_valid() %>%
-  dplyr::distinct(.)
+  dplyr::distinct(.) %>%
+  st_make_valid() 
 
 
 ## ------------------------------------------------------------------
 ## 2 Intersection med grid
 ## ------------------------------------------------------------------
 
-mili_oresund <- st_intersection(mili, grid) %>%
-  mutate(area_mili = st_area(.)) 
+mili_oresund <- st_intersection(grid_sf,mili) %>%
+  mutate(area_mili = as.numeric(st_area(.))) %>%
+  st_drop_geometry() %>%
+  group_by(id) %>%
+  summarise(area_mili = sum(area_mili, na.rm = TRUE), .groups = "drop")
 
 
-mili_area <- mili_oresund %>%
-  mutate(value = as.numeric(area_mili) / as.numeric(area_grid),
-         value = pmin(value, 1)) %>%
+mili_area <- grid_sf %>%
+  left_join(mili_oresund) %>%
+  mutate(value = tidyr::replace_na(area_mili, 0),
+         value = as.numeric(value) / as.numeric(area_grid)) %>%
   st_make_valid()
 
 
@@ -46,7 +51,7 @@ plot(mili_rast)
 
 terra::writeRaster(
   mili_rast,
-  filename  = file.path(PATHS$output_pressure_tif, "\\militaeromraader.tif"),
+  filename  = file.path(PATHS$output_pressure_tif, "restriktive_omraader","\\militaeromraader.tif"),
   overwrite = TRUE
 )
 
@@ -55,14 +60,16 @@ terra::writeRaster(
 ## 4  Plotting for bilag
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
+mili_rast_sf <- mili_rast %>%
+  terra::as.polygons(dissolve = FALSE) %>%
+  st_as_sf() %>%
+  st_make_valid()
+
 
 
 map_mili <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
-  geom_sf(data = mili_area, aes(fill = value), color = NA) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
+  geom_sf(data = mili_rast_sf, aes(fill = value), color = NA) +
   color_viridis+
   boundary+
   theme_minimal()+
@@ -73,9 +80,6 @@ map_mili <- ggplot() +
 
 map_mili
 
-ggsave(plot = map_mili,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg","militaeromraader.png"),
-       bg = NULL,
-       height = 18,
-       width = 18,
-       dpi = 300)
+gem_trim(map_mili,
+         file.path(PATHS$output_pressure_png, "restriktive_omraader\\militaer.png"),
+         dpi = 360, width_cm = 18)

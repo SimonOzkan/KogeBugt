@@ -138,7 +138,6 @@ map_production
 map_approved
 map_planned
 
-ggsave(plot = map_production, filename = file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_production.png"), bg = NULL, height = 18, width = 18, dpi = 300)
 gem_trim(map_production,
          file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_production.png"),
          dpi = 360, width_cm = 18)
