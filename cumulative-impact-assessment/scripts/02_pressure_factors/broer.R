@@ -19,20 +19,20 @@ broer_koge_buffer <- broer_koge %>%
 
 # For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
 # så arealet beregnes celle-for-celle
-broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid) %>%
+broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid_sf) %>%
   mutate(area_bro = st_area(.)) %>%
   st_drop_geometry() %>%
   group_by(id) %>%
   summarise(area_bro_id = sum(area_bro), .groups = "drop")
 
-broer_koge_gridded <- grid %>%                          # start fra HELE grid
-  left_join(broer_koge_buffer_grid, by = "id") %>%      # join bro-arealer på
+broer_koge_gridded <- grid_sf %>%                          
+  left_join(broer_koge_buffer_grid, by = "id") %>%      
   mutate(
     area_bro_id = tidyr::replace_na(as.numeric(area_bro_id), 0),  # ingen bro = 0
     value = as.numeric(area_bro_id) / as.numeric(area_grid),
     value = pmin(value, 1)
   ) %>%
-  dplyr::select(id, value, geometry) %>%
+  dplyr::select(id, value, geom) %>%
   st_as_sf()
 
 
@@ -50,36 +50,43 @@ bro_buffer_rast <- terra::rasterize(
 )
 
 plot(bro_buffer_rast)
+global(is.na(bro_buffer_rast) & !is.na(grid_raster), "sum")[1, 1]
+bro_buffer_fill <- fill_na(bro_buffer_rast, grid_raster, w = 3 ) # sikre at alle huller er udfyldt med 3x3 window mean
+
 terra::writeRaster(
-  bro_buffer_rast,
+  bro_buffer_fill,
   filename = file.path(PATHS$output_pressure_tif,"anlaeg", "broer_buffer.tif"),
   overwrite = TRUE
 )
 
 ############### Plotting for bilag ################
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
+
 viridis_start_color <- viridis_pal()(1)
 
 map_broer_buffer <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = broer_koge_buffer,fill = "yellow", color=NA) +
-  color_viridis +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
+  geom_sf(data = assessment_area_dissolved,
+          aes(fill = "Ikke tilstede"), color = "black", alpha = 1) +
+  geom_sf(data = broer_koge_buffer,
+          aes(fill = "Tilstede"), shape = 21, color = NA, size = 1.5) +
+  scale_fill_manual(name = NULL,
+                    values = c("Tilstede" = "red", "Ikke tilstede" = "#9FBDD8"))+
   boundary +
   theme_minimal() +
   my_theme +
+  theme(legend.position = c(.95, .95),
+        legend.justification = c("right", "top"),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.text = element_text(size = 30))+
   north_arrow +
   scale_bar
 map_broer_buffer
 
-ggsave(plot = map_broer_buffer,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg","broer_buffer.png"),
-       bg = "white",
-       height = 18,
-       width = 18,
-       dpi = 300)
 
+
+gem_trim(map_broer_buffer,
+         file.path(PATHS$output_pressure_png, "anlaeg", "broer_buffer_trim.png"),
+         dpi = 360, width_cm = 18)
 
 # - Broer uden buffer ---------------------------
 
