@@ -250,7 +250,7 @@ ggplot(sammenlign, aes(value_maalt, value_model)) +
   theme_minimal()
 
 ## ==================================================================
-## FORBEHOLD (skriv i metoden)
+## FORBEHOLD 
 ## ==================================================================
 # - AnalyseMetode antages sammenlignelig. Diagnostikken viste dog signifikante
 #   offsets for nyere NH4-metoder (SM 17 +47 %, DS/ISO +110 %), konfunderet med
