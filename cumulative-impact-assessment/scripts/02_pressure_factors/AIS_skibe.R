@@ -66,35 +66,17 @@ years_to_use <- c(2018,2019,2020,2021,2022,2023)
 ## ------------------------------------------------------------------
 ## Hjælpefunktion: indlæs, projicér til template og gennemsnit for én skibstype
 ## ------------------------------------------------------------------
-
 load_ship_type_average <- function(folder_name, years) {
-  
   folder_path <- file.path(emodnet_dir, folder_name)
   tif_files <- list.files(folder_path, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+  if (length(tif_files) == 0) { warning("Ingen .tif for: ", folder_name); return(NULL) }
   
-  if (length(tif_files) == 0) {
-    warning("Ingen .tif-filer fundet for: ", folder_name)
-    return(NULL)
-  }
+  file_years <- as.numeric(stringr::str_extract(basename(tif_files), "20[0-2][0-9]"))
+  selected   <- tif_files[file_years %in% years]
+  if (length(selected) == 0) { warning("Ingen valgte år for: ", folder_name); return(NULL) }
   
-  # Udtræk årstal fra filnavn
-  file_years <- stringr::str_extract(basename(tif_files), "20[0-2][0-9]") %>%
-    as.numeric()
-  
-  selected_files <- tif_files[file_years %in% years]
-  
-  # Projicér til grid
-  rasters_aligned <- lapply(selected_files, function(f) {
-    terra::rast(f) %>%
-      terra::project(grid_raster, method = "bilinear")
-  })
-  
-  # Gennemsnit på tværs af årene, derefter maskér til assessment area
-  avg <- terra::mean(terra::rast(rasters_aligned), na.rm = TRUE)
-  terra::mask(avg, assessment_area_vect)
+  terra::mean(terra::rast(selected), na.rm = TRUE)   # <- FULD udstrækning, INGEN projektion
 }
-
-
 ## ------------------------------------------------------------------
 ## Indlæs og gennemsnit alle skibstyper
 ## ------------------------------------------------------------------
@@ -119,7 +101,6 @@ ship_type_rasters$fishing
 group_rasters <- list()
 
 
-
 for (group_name in names(functional_groups)) {
   
   message("Samler gruppe: ", group_name)
@@ -134,19 +115,27 @@ for (group_name in names(functional_groups)) {
   group_rasters[[group_name]] <- group_sum
 }
 
-group_rasters$Rekreativ
+group_rasters$Industri_andre
 ## ------------------------------------------------------------------
 ## Log-normaliser hver gruppe til 0-1
 ## ------------------------------------------------------------------
 # Skibstæthed er kraftigt højreskæv (få celler med meget høj trafik i sejlruterne),
 # derfor log-transformation FØR den lineære normalisering.
 
-normalize_log <- function(r) {
-  r_log <- log10(r+1)  #håndterer 0-værdier korrekt
-  terra::scale_linear(r_log)
+normalize_log_fuldt <- function(r_full, grid_raster) {
+  log_full <- log10(r_full + 1)                               # log på HELE området
+  
+  rng <- terra::global(log_full, "range", na.rm = TRUE)       # min/max for hele EMODnet-området
+  mn  <- rng[1, 1]; mx <- rng[1, 2]
+  
+  log_koge <- terra::project(log_full, grid_raster, method = "bilinear")  # klip/regrid til projektgrid
+  log_koge_fill <- fill_na(log_koge, grid_raster, w = 3)
+  
+  terra::clamp((log_koge_fill - mn) / (mx - mn), 0, 1)             # normalisér med FULDT min/max
 }
 
-group_rasters_norm <- lapply(group_rasters, normalize_log)
+group_rasters_norm <- lapply(group_rasters, normalize_log_fuldt, grid_raster)
+plot(group_rasters_norm$Industri_andre)
 
 ## ------------------------------------------------------------------
 ## Gem rastere
@@ -170,8 +159,7 @@ for (group_name in names(group_rasters_norm)) {
 
 
 ############### Plotting for bilag ################
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
+
 
 group_titles <- list(
   Industri_andre = "Skibstrafik (Industri)",
@@ -191,8 +179,7 @@ for (group_name in names(group_rasters_norm)) {
   names(group_sf)[1] <- "value"  # sikrer konsistent kolonnenavn til plotting
   
   map_shipping <- ggplot() +
-    geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-    geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+    geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
     geom_sf(data = group_sf, aes(fill = value, color = after_scale(fill)), linewidth = 0.1) +
     color_viridis+
     boundary+
@@ -201,12 +188,10 @@ for (group_name in names(group_rasters_norm)) {
     north_arrow+
     scale_bar
   
-  ggsave(plot = map_shipping,
-         filename = file.path(PATHS$output_pressure_png,"skibsfart" ,paste0("shipping_", group_name, ".png")),
-         bg = NULL,
-         height = 18,
-         width = 18,
-         dpi = 300)
-  
+
+  gem_trim(map_shipping,
+           file.path(PATHS$output_pressure_png, "skibsfart", paste0("shipping_", group_name, ".png")),
+           dpi = 360, width_cm = 18)
+
 }
 

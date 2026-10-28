@@ -11,11 +11,12 @@ olie_spild <- st_read(file.path(PATHS$input_pressure,
                                 "olie",
                                 "_ags_IllegalOilDischarges_project",
                                 "IllegalOilDischarges_project.shp")) %>%
-  st_transform(crs = target_crs)
+  st_transform(crs = target_crs) %>%
+  filter(Year %in% c(2016,2017,2018,2019,2020,2023,2024,2025))
 
+unique(olie_spild$Year)
 #--------- intersection med undersøgelsesområdet
-olie_koge <- st_intersection(olie_spild, assessment_area_dissolved) %>%
-  filter(Year %in% c(2019,2020,2023,2024,2025,2026))
+#olie_koge <- st_intersection(olie_spild, assessment_area_dissolved)
 
 
 ## ------------------------------------------------------------------
@@ -26,6 +27,7 @@ olie_koge <- st_intersection(olie_spild, assessment_area_dissolved) %>%
 # bruge det lokale gennemsnit for Køge Bugt, så skift olie_spild ud med olie_koge.
 mean_vol  <- mean(olie_spild$EstimVol_m[olie_spild$EstimVol_m > 0], na.rm = TRUE)
 mean_area <- mean(olie_spild$Area__km2_[olie_spild$Area__km2_ > 0], na.rm = TRUE)
+
 
 mean_vol
 mean_area
@@ -38,7 +40,7 @@ mean_area
 # - oil_km2 = volumen / eff_area  ->  estimeret mængde olie pr. km2 (fordeles jævnt).
 # - radius bagud-beregnet fra eff_area (cirkulær buffer).
 
-olie <- olie_koge %>%
+olie <- olie_spild %>%
   mutate(
     vol_m3       = ifelse(is.na(EstimVol_m) | EstimVol_m == 0, mean_vol,  EstimVol_m),
     area_km2     = ifelse(is.na(Area__km2_) | Area__km2_ == 0, mean_area, Area__km2_),
@@ -46,7 +48,6 @@ olie <- olie_koge %>%
     oil_km2      = vol_m3 / eff_area_km2,
     radius_m     = sqrt(eff_area_km2 * 1e6 / pi)
   )
-
 
 ## ------------------------------------------------------------------
 ## Cirkulær buffer pr. spild (spild-specifik radius; oil_km2 bevares)
@@ -56,6 +57,8 @@ olie <- olie_koge %>%
 
 olie_buffer <- st_buffer(olie, dist = olie$radius_m)
 
+olie_buffer_grid <- st_intersection(grid_sf, olie_buffer) %>%
+  mutate(oil_km2 = tidyr::replace_na(oil_km2, 0))
 
 ## ------------------------------------------------------------------
 ## Rasterisér olie/km2 til 250 m grid (sum ved overlap) og maskér
@@ -63,24 +66,34 @@ olie_buffer <- st_buffer(olie, dist = olie$radius_m)
 # fun = "sum": hvor spild overlapper, akkumuleres olie/km2 (mere olie = større pres).
 
 olie_rast <- terra::rasterize(
-  terra::vect(olie_buffer),
+  terra::vect(olie_buffer_grid),
   grid_raster,
   field      = "oil_km2",
   fun        = "sum",
   background = 0
-) %>%
-  terra::mask(assessment_area_vect)
+)
 
-
+plot(olie_rast)
 ## ------------------------------------------------------------------
 ## 6. Log-transformér og normalisér til 0-1
 ## ------------------------------------------------------------------
 # Olie/km2 er kraftigt højreskæv -> log FØR normalisering (som HELCOM).
 
-olie_norm <- terra::scale_linear(log1p(olie_rast))
-names(olie_norm) <- "value"
+oil_rast_fill <- fill_na(olie_rast, grid_raster, w = 3)
+
+plot(oil_rast_fill)
 
 
+summary(olie$oil_km2)
+olie_log_min <- 0
+olie_log_max <- log10(max(olie$oil_km2))
+
+names(oil_rast_fill) <- "value"
+#Normaliser
+olie_log <- log10(1+oil_rast_fill)  # 
+olie_norm <- (olie_log - olie_log_min) / (olie_log_max - olie_log_min)
+
+plot(olie_norm)
 ## ------------------------------------------------------------------
 ## 7. Gem rastere
 ## ------------------------------------------------------------------
@@ -95,9 +108,6 @@ terra::writeRaster(olie_norm, file.path(PATHS$output_pressure_tif, "miljøfremme
 ## 8. Plotting for bilag
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
 
 olie_sf <- olie_norm %>%
   terra::as.polygons(dissolve = FALSE) %>%
@@ -106,8 +116,7 @@ olie_sf <- olie_norm %>%
   st_make_valid()
 
 map_olie <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
   geom_sf(data = olie_sf, aes(fill = value), color = NA) +
   color_viridis +
   boundary +
@@ -117,9 +126,8 @@ map_olie <- ggplot() +
   scale_bar
 map_olie
 
-ggsave(plot = map_olie,
-       filename = file.path(PATHS$output_pressure_png, "miljøfremmede","oliespild.png"),
-       bg = "white",
-       height = 18,
-       width = 18,
-       dpi = 300)
+
+gem_trim(map_olie,
+         file.path(PATHS$output_pressure_png, "miljøfremmede", "oliespild.png"),
+         dpi = 360, width_cm = 18)
+
