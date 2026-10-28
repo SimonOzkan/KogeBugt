@@ -23,20 +23,18 @@ rens_koge_buffer <- rens_koge %>%
 
 # For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
 # så arealet beregnes celle-for-celle
-rens_koge_buffer_grid <- st_intersection(rens_koge_buffer, grid) %>%
-  mutate(area_rens = st_area(.)) %>%
+rens_koge_buffer_grid <- st_intersection(rens_koge_buffer, grid_sf) %>%
+  mutate(area_rens = as.numeric(st_area(.))) %>%
   st_drop_geometry() %>%
   group_by(id) %>%
   summarise(area_rens_id = sum(area_rens), .groups = "drop")
 
-rens_koge_gridded <- grid %>%                           # start fra HELE grid
+rens_koge_gridded <- grid_sf %>%                           # start fra HELE grid
   left_join(rens_koge_buffer_grid, by = "id") %>%       # join renseanlæg-arealer på
   mutate(
     area_rens_id = tidyr::replace_na(as.numeric(area_rens_id), 0),  # ingen renseanlæg = 0
-    value = as.numeric(area_rens_id) / as.numeric(area_grid),
-    value = pmin(value, 1)
+    value = as.numeric(area_rens_id) / as.numeric(area_grid)
   ) %>%
-  dplyr::select(id, value, geometry) %>%
   st_as_sf()
 
 
@@ -53,6 +51,7 @@ rens_buffer_rast <- terra::rasterize(
   background = NA         # celler udenfor assessment area → NA
 )
 
+
 plot(rens_buffer_rast)
 terra::writeRaster(
   rens_buffer_rast,
@@ -61,70 +60,28 @@ terra::writeRaster(
 )
 
 ############### Plotting for bilag ################
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
+
 
 map_rens_buffer <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = rens_koge_buffer, fill = "yellow", color = NA) +
-  color_viridis +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
+  geom_sf(data = assessment_area_dissolved,
+          aes(fill = "Ikke tilstede"), color = "black", alpha = 1) +
+  geom_sf(data = rens_koge,
+          aes(fill = "Tilstede"), shape = 21, color = "black", size = 1.5) +
+  scale_fill_manual(name = NULL,
+                    values = c("Tilstede" = "red", "Ikke tilstede" = "#9FBDD8"))+
   boundary +
   theme_minimal() +
   my_theme +
+  theme(legend.position = c(.95, .95),
+        legend.justification = c("right", "top"),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.text = element_text(size = 16))+
   north_arrow +
   scale_bar
 map_rens_buffer
 
-ggsave(plot = map_rens_buffer,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg", "renseanlaeg_buffer.png"),
-       bg = "white",
-       height = 18,
-       width = 18,
-       dpi = 300)
 
-
-# - Renseanlæg uden buffer ---------------------------
-
-# Sæt present-værdi (1) på alle renseanlæg
-rens_koge_pa <- rens_koge %>%
-  mutate(value = 1)
-
-# Konverter til raster: enhver celle berørt af et renseanlæg → 1, ellers 0
-rens_pa_rast <- terra::rasterize(
-  terra::vect(rens_koge_pa),
-  grid_raster,
-  field      = "value",
-  fun        = "max",    # present hvis mindst ét renseanlæg berører cellen
-  background = 0          # celler uden renseanlæg (men i assessment area) → 0
-)
-# Maskér til assessment area, så celler udenfor bliver NA
-rens_pa_rast <- terra::mask(rens_pa_rast, assessment_area_vect)
-
-plot(rens_pa_rast)
-terra::writeRaster(
-  rens_pa_rast,
-  filename = file.path(PATHS$output_pressure_tif, "anlaeg", "renseanlaeg_pa.tif"),
-  overwrite = TRUE
-)
-
-############### Plotting for bilag ################
-map_rens_pa <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = rens_koge, color = "yellow", size = 3) +
-  color_viridis +
-  boundary +
-  theme_minimal() +
-  my_theme +
-  north_arrow +
-  scale_bar
-map_rens_pa
-
-ggsave(plot = map_rens_pa,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg", "renseanlaeg_pa.png"),
-       bg = "white",
-       height = 18,
-       width = 18,
-       dpi = 300)
+gem_trim(map_rens_buffer,
+         file.path(PATHS$output_pressure_png, "anlaeg","renseanlaeg_buffer.png"),
+         dpi = 360, width_cm = 18)
