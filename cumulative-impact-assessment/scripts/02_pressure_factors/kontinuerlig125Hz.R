@@ -47,7 +47,7 @@ stoj_kont_koge_fill <- fill_na(stoj_kont_koge, grid_raster, w = 3)
 plot(stoj_kont_koge_fill)
 
 terra::writeRaster(stoj_kont_koge_fill,
-                   file.path(PATHS$output_pressure_tif, "stoj_kontinuerlig.tif"),
+                   file.path(PATHS$output_pressure_tif,"lyd_energi" ,"stoj_kontinuerlig.tif"),
                    overwrite = TRUE)
 
 

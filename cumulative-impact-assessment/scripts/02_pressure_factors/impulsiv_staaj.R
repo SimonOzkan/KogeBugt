@@ -34,22 +34,14 @@ stoj_imp_250 <- terra::project(stoj_imp, grid_raster, method = "bilinear")
 
 
 ## ------------------------------------------------------------------
-## 3. Maskér til assessment-området
-## ------------------------------------------------------------------
-
-stoj_imp_koge <- terra::mask(stoj_imp_250, assessment_area_vect)
 
 
-## ------------------------------------------------------------------
-## 4. Re-normalisér 0-1 inden for området
-## ------------------------------------------------------------------
+stoj_imp_250_fill <- fill_na(stoj_imp_250, grid_raster, w = 3)
+plot(stoj_imp_250_fill)
 
-stoj_imp_norm <- terra::scale_linear(stoj_imp_koge)
-names(stoj_imp_norm) <- "value"
 
-plot(stoj_imp_norm)
-terra::writeRaster(stoj_imp_norm,
-                   file.path(PATHS$output_pressure_tif, "stoj_impulsiv_norm.tif"),
+terra::writeRaster(stoj_imp_250_fill,
+                   file.path(PATHS$output_pressure_tif,"lyd_energi", "stoj_impulsiv.tif"),
                    overwrite = TRUE)
 
 
@@ -57,19 +49,16 @@ terra::writeRaster(stoj_imp_norm,
 ## 5. Plotting for bilag
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
 
-stoj_imp_sf <- stoj_imp_norm %>%
+stoj_imp_sf <- stoj_imp_250_fill %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_transform(crs = target_crs) %>%
-  st_make_valid()
+  st_make_valid() %>%
+  rename("value" = "PL_05")
 
 map_stoj_imp <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
   geom_sf(data = stoj_imp_sf, aes(fill = value), color = NA) +
   color_viridis +
   boundary +
@@ -79,6 +68,7 @@ map_stoj_imp <- ggplot() +
   scale_bar
 map_stoj_imp
 
-ggsave(plot = map_stoj_imp,
-       filename = file.path(PATHS$output_pressure_png, "lyd_energi","stoj_impulsiv.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+
+gem_trim(map_stoj_imp,
+         file.path(PATHS$output_pressure_png, "lyd_energi", "impulsiv.png"),
+         dpi = 360, width_cm = 18)
