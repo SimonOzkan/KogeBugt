@@ -5,35 +5,36 @@ PATHS <- set_project_paths()
 # ── Hent NIS fra HELCOM ───────────────────────────────────────────────────
 # Fra 500x500 res til 250x250 med bilinear metode
 NIS_250 <- terra::rast(file.path(PATHS$input_pressure, "NIS","_ags_PL_17","PL_17.tif")) %>%
-  terra::project(grid_raster, method = "bilinear") %>%
-  terra::mask(terra::vect(assessment_area_dissolved))
+  terra::project(grid_raster, method = "bilinear") 
 
-names(NIS_250) <- "value"
+
+NIS_250_fill_na <- fill_na(NIS_250, grid_raster, w = 3)
+
+names(NIS_250_fill_na) <- "value"
+
+
+
+
 
 # gem som tif
 terra::writeRaster(
-  NIS_250,
-  filename = file.path(PATHS$output_ecosystem_tif,"fisk", "/NIS_250.tif"),
+  NIS_250_fill_na,
+  filename = file.path(PATHS$output_pressure_tif,"NIS", "/NIS_250.tif"),
   overwrite = TRUE
 )
 
 # Konverter til sf polygon (kun present beholdes, 0 -> NA fjerner "absent"-celler)
-NIS_sf <- NIS_250 %>%
+NIS_sf <- NIS_250_fill_na %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid()
 
 # plot
-map_eu <- st_read(file.path(PATHS$input_assessment_area,"/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(.,crs = target_crs)
 
 
 # Sætter baggrundskortet i.e. hvor "value/fraction" = 0 til samme farve 
-viridis_start_color <- viridis_pal()(1)  
-
 map_NIS <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = NIS_sf, 
           aes(fill = value), color = NA) +
   color_viridis+
@@ -46,13 +47,9 @@ map_NIS <- ggplot() +
 map_NIS
 
 
-ggsave(plot = map_NIS,
-       filename = file.path(PATHS$output_pressure_png,"/NIS/" ,"NIS.png"),
-       bg = NULL,
-       height = 18,
-       width = 18,
-       dpi = 300)
-
+gem_trim(map_NIS,
+         file.path(PATHS$output_pressure_png, "NIS\\NIS.png"),
+         dpi = 360, width_cm = 18)
 
 
 
