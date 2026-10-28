@@ -32,65 +32,62 @@ raastof_emodnet <- st_read(file.path(PATHS$input_pressure, "raastof/EMODnet_HA_A
 raastof_emodnet_koge <- st_intersection(raastof_emodnet, assessment_area_dissolved)
 
 raastof_aktiv_koge <- raastof_emodnet_koge %>%
-  filter(STATUS == "Active")
+  filter(STATUS == "Active") %>%
+  st_union() %>%
+  st_make_valid()
 
 raastof_expired_koge <- raastof_emodnet_koge %>%
-  filter(STATUS != "Active")
+  filter(STATUS != "Active") %>%
+  st_union() %>%
+  st_make_valid()
 
 # ── 3. Funktion til fraktion-beregning ───────────────────────────────────────
-calc_frac <- function(lag_sf, grid) {
-  intersection <- st_intersection(grid, lag_sf) %>%
-    filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
+calc_frac <- function(lag_sf, grid_sf) {
+  
+  intersection <- st_intersection(grid_sf, lag_sf) %>%
     mutate(area_intersect = as.numeric(st_area(.))) %>%
-    dplyr::select(-area_grid)
-  
-  frac <- intersection %>%
     st_drop_geometry() %>%
-    left_join(grid, by = "id") %>%
-    mutate(
-      area_frac = area_intersect / area_grid,
-      area_frac = pmin(area_frac, 1)
-    ) %>%
-    select(id, area_frac)
+    group_by(id) %>%
+    summarise(area_intersect = sum(area_intersect, na.rm = TRUE), .groups = "drop")
   
+  frac <- grid_sf %>%
+    left_join(intersection, by = "id") %>%
+    mutate(value = tidyr::replace_na(area_intersect,0),
+           value = value / area_grid
+    )
   return(frac)
 }
 
 # ── 4. Funktion til rasterisering ─────────────────────────────────────────────
-make_raster <- function(frac_df, grid, assessment_area_vect, target_crs) {
+make_raster <- function(grid_frac, grid_raster) {
 
-  grid_frac <- grid %>%
-    left_join(frac_df %>% select(id, area_frac), by = "id") %>%
-    mutate(area_frac = ifelse(is.na(area_frac), 0, area_frac))
   
   r <- terra::rasterize(
     terra::vect(grid_frac),
     grid_raster,
-    field      = "area_frac",
+    field      = "value",
     fun        = "max",
     background = NA
   )
-  r[r == 0] <- NA
   return(r)
 }
 
 # ── 5. Beregn fraktioner ──────────────────────────────────────────────────────
 message("Beregner: Udviklingszone råstof")
-frac_udviklingszone <- calc_frac(udviklingszone_raastof, grid)
+frac_udviklingszone <- calc_frac(udviklingszone_raastof, grid_sf)
 
 message("Beregner: Aktive råstofsområder")
-frac_aktiv <- calc_frac(raastof_aktiv_koge, grid)
+frac_aktiv <- calc_frac(raastof_aktiv_koge, grid_sf)
 
 message("Beregner: Expired råstofsområder")
-frac_expired <- calc_frac(raastof_expired_koge, grid)
+frac_expired <- calc_frac(raastof_expired_koge, grid_sf)
 
 # ── 6. Lav rasters ────────────────────────────────────────────────────────────
-r_udviklingszone <- make_raster(frac_udviklingszone, grid, assessment_area_vect, target_crs)
-r_aktiv          <- make_raster(frac_aktiv,          grid, assessment_area_vect, target_crs)
-r_expired        <- make_raster(frac_expired,         grid, assessment_area_vect, target_crs)
+r_udviklingszone <- make_raster(frac_udviklingszone, grid_raster)
+r_aktiv          <- make_raster(frac_aktiv,grid_raster)
+r_expired        <- make_raster(frac_expired,grid_raster)
 
 # ── 7. Gem tif filer ──────────────────────────────────────────────────────────
-dir.create(file.path(PATHS$output_pressure_tif), recursive = TRUE, showWarnings = FALSE)
 
 terra::writeRaster(r_udviklingszone, file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_udviklingszone_frac.tif"), overwrite = TRUE)
 terra::writeRaster(r_aktiv,          file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_aktiv_frac.tif"),          overwrite = TRUE)
@@ -101,25 +98,18 @@ to_sf <- function(r, value_col) {
   r %>%
     terra::as.polygons(dissolve = FALSE) %>%
     st_as_sf() %>%
-    st_make_valid() %>%
-    rename("value" = 1) %>%
-    st_transform(crs = target_crs)
-}
+    st_make_valid()
+  }
 
 udviklingszone_sf <- to_sf(r_udviklingszone)
 aktiv_sf          <- to_sf(r_aktiv)
 expired_sf        <- to_sf(r_expired)
 
-# ── 9. Indlæs baggrundskort ───────────────────────────────────────────────────
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(crs = target_crs)
-
-viridis_start_color <- viridis_pal()(1)
 # ── 10. Plot-funktion ─────────────────────────────────────────────────────────
-plot_raastof <- function(sf_data, titel, farve_navn) {
+plot_raastof <- function(sf_data) {
+  
   ggplot() +
-    geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-    geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+    geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
     geom_sf(data = sf_data, aes(fill = value), color = NA) +
     color_viridis+
     boundary+
@@ -130,13 +120,25 @@ plot_raastof <- function(sf_data, titel, farve_navn) {
 }
 
 # ── 11. Lav plots ─────────────────────────────────────────────────────────────
-map_udviklingszone <- plot_raastof(udviklingszone_sf, "Udviklingszone råstof", "Fraktion\n(0-1)")
-map_aktiv          <- plot_raastof(aktiv_sf,          "Aktive råstofsområder", "Fraktion\n(0-1)")
-map_expired        <- plot_raastof(expired_sf,         "Expired råstofsområder","Fraktion\n(0-1)")
+map_udviklingszone <- plot_raastof(udviklingszone_sf)
+map_aktiv          <- plot_raastof(aktiv_sf)
+map_expired        <- plot_raastof(expired_sf)
 
 map_udviklingszone
 map_aktiv
 map_expired
+
+
+gem_trim(map_udviklingszone,
+         file.path(PATHS$output_pressure_png, "fysisk_forstyrrelse","map_udviklingszone.png"),
+         dpi = 360, width_cm = 18)
+
+gem_trim(map_aktiv,
+         file.path(PATHS$output_pressure_png, "fysisk_forstyrrelse","map_aktiv.png"),
+         dpi = 360, width_cm = 18)
+gem_trim(map_expired,
+         file.path(PATHS$output_pressure_png, "fysisk_forstyrrelse","map_expired.png"),
+         dpi = 360, width_cm = 18)
 
 # ── 12. Gem plots ─────────────────────────────────────────────────────────────
 ggsave(plot = map_udviklingszone, filename = file.path(PATHS$output_pressure_png,"fysisk_forstyrrelse", "\\raastof_udviklingszone.png"), bg = NULL, height = 18, width = 18, dpi = 300)

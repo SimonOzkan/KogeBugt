@@ -8,9 +8,6 @@ source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
 
-# Sæt crs
-target_crs <- 25832
-
 
 # Læs kunstigt lys
 ALAN_raw <- terra::rast(file.path(PATHS$input_pressure, "/Kunstigt lys/ALAN_Koge.tif")) 
@@ -24,18 +21,24 @@ crs(ALAN_fixed) <- "EPSG:25832"  # omdøb kun mærkatet - ingen project() involv
 ALAN_fixed[ALAN_fixed == 0] <- NA
 
 
+ALAN_koge <- terra::project(ALAN_fixed, grid_raster, method = "bilinear")
 
+ALAN_fill <- fill_na(ALAN_koge, grid_raster, w = 3)
+
+plot(ALAN_fill)
 #Normaliser
-ALAN_log <- log10(1+ALAN_fixed)  # 
+ALAN_log <- log10(1+ALAN_fill)  # 
 ALAN_log_min <- terra::global(ALAN_log, "min", na.rm = TRUE)[1, 1]
 ALAN_log_max <- terra::global(ALAN_log, "max", na.rm = TRUE)[1, 1]
 ALAN_norm <- (ALAN_log - ALAN_log_min) / (ALAN_log_max - ALAN_log_min)
 
+
+plot(ALAN_norm)
 ## Lav rasterlag for normaliseret værdier
 
 terra::writeRaster(
   ALAN_norm,
-  filename  = file.path(PATHS$output_pressure_tif, "ALAN_lognorm.tif"),
+  filename  = file.path(PATHS$output_pressure_tif, "lyd_energi","ALAN_lognorm.tif"),
   overwrite = TRUE
 )
 
@@ -45,21 +48,14 @@ ALAN_sf <- ALAN_norm %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid() %>%
-  rename("value" = "Artificial.light.at.night") %>%
-  st_transform(., crs = target_crs)
+  rename("value" = "Artificial.light.at.night")
 
-st_bbox(ALAN_sf)
 
 ############### Plotting for bilag ################
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-
-viridis_start_color <- viridis_pal()(1)
 
 map_ALAN<- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = ALAN_sf,
           aes(fill = value), color = NA) +
   color_viridis+
@@ -72,12 +68,10 @@ map_ALAN<- ggplot() +
 
 map_ALAN
 
-ggsave(plot = map_ALAN,
-       filename = file.path(PATHS$output_pressure_png, "\\ALAN.png"),
-       bg = NULL,
-       height = 18,
-       width = 18,
-       dpi = 300)
+
+gem_trim(map_ALAN,
+         file.path(PATHS$output_pressure_png, "lyd_energi","ALAN.png"),
+         dpi = 360, width_cm = 18)
 
 
 
