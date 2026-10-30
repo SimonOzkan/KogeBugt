@@ -63,6 +63,20 @@ cargo_per_port <- havne_koge %>%
 
 
 
+## ---- normaliseringsanker fra HELE datasættet (alle havne, ikke kun Køge) ----
+cargo_all <- havne_good_traffic %>%          
+  st_drop_geometry() %>%
+  left_join(Goods_Traffic, by = "PORT_ID") %>%
+  group_by(PORT_ID) %>%
+  summarise(mean_cargo = mean(tot_yr_cargo, na.rm = TRUE), .groups = "drop") %>%
+  filter(!is.na(mean_cargo))
+
+# max af log10(cargo+1) over ALLE industrihavne = normaliserings-max
+max_full <- max(log10(cargo_all$mean_cargo + 1), na.rm = TRUE)
+message("Normaliseringsanker (log-cargo max, hele datasættet): ", round(max_full, 3))
+
+
+
 # Lystbådshavne har ingen import/eksport -> mean_cargo bliver NaN (is.na() fanger NaN)
 havne_industri_df <- cargo_per_port %>% filter(!is.na(mean_cargo))
 havne_lystbaad_df <- cargo_per_port %>% filter(is.na(mean_cargo))
@@ -91,18 +105,32 @@ industri_buffer <- industri_pts %>%
   st_buffer(dist = buffer_industri) %>%
   mutate(value_raw = log10(mean_cargo+1))
 
+
+industri_buffer_id <- st_intersection(grid_sf, industri_buffer) %>%
+  st_drop_geometry() %>%
+  distinct()
+  
+industri_buffer_gridded <- left_join(grid_sf, industri_buffer_id) %>%
+  mutate(value_raw = tidyr::replace_na(value_raw, 0)) %>%
+  st_as_sf() %>%
+  st_make_valid
+
+
 industri_rast <- terra::rasterize(
-  terra::vect(industri_buffer),
+  terra::vect(industri_buffer_gridded),
   grid_raster,
   field      = "value_raw",
   fun        = "max",
-  background = NA,
-  touches    = TRUE        # <- enhver celle, bufferen RØRER, får værdien
-) %>%
-  terra::mask(assessment_area_vect)
+  background = NA
+) 
 
-# Normalisér til 0-1 inden for området
-industri_norm <- terra::scale_linear(industri_rast)
+
+
+# Mask og evt fill huller 
+industri_rast_fill <- fill_na(industri_rast, grid_raster, w = 3)
+
+## Normalisér til 0-1 mod HELE datasættet (anker: 0 = ingen havn, max = travleste havn i datasættet)
+industri_norm <- terra::clamp(industri_rast / max_full, 0, 1)
 names(industri_norm) <- "value"
 
 plot(industri_norm)
@@ -110,7 +138,6 @@ plot(industri_norm)
 terra::writeRaster(industri_norm,
                    file.path(PATHS$output_pressure_tif, "anlaeg", "havne_industri_norm.tif"),
                    overwrite = TRUE)
-
 
 ## ==================================================================
 ## LAG 2 - LYSTBÅDSHAVNE (fysisk tilstedeværelse -> fraktion pr. celle)
@@ -121,20 +148,18 @@ lyst_buffer <- lystbaad_pts %>%
   st_buffer(dist = buffer_lystbaad) %>%
   st_as_sf()
 
-lyst_buffer_grid <- st_intersection(lyst_buffer, grid) %>%
+lyst_buffer_grid <- st_intersection(lyst_buffer, grid_sf) %>%
   mutate(area_lyst = st_area(.)) %>%
   st_drop_geometry() %>%
   group_by(id) %>%
-  summarise(area_lyst_id = sum(area_lyst), .groups = "drop")
+  summarise(area_lyst_id = sum(as.numeric(area_lyst)), .groups = "drop")
 
-lyst_gridded <- grid %>%
+lyst_gridded <- grid_sf %>%
   left_join(lyst_buffer_grid, by = "id") %>%
   mutate(
     area_lyst_id = tidyr::replace_na(as.numeric(area_lyst_id), 0),
-    value = as.numeric(area_lyst_id) / as.numeric(area_grid),
-    value = pmin(value, 1)
+    value = as.numeric(area_lyst_id) / as.numeric(area_grid)
   ) %>%
-  dplyr::select(id, value, geometry) %>%
   st_as_sf()
 
 message("Grid-celler med lystbådshavn: ", sum(lyst_gridded$value > 0))
@@ -147,6 +172,8 @@ lyst_rast <- terra::rasterize(
   background = NA
 )
 
+
+plot(lyst_rast)
 terra::writeRaster(lyst_rast,
                    file.path(PATHS$output_pressure_tif, "anlaeg", "havne_lystbaad_frak.tif"),
                    overwrite = TRUE)
@@ -156,52 +183,61 @@ terra::writeRaster(lyst_rast,
 ## Plotting for bilag (ét kort per lag)
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
+
 
 # Industri 
-industri_sf <- industri_norm %>%
-  terra::as.polygons(dissolve = FALSE) %>%
-  st_as_sf() %>%
-  st_transform(crs = target_crs) %>%
-  st_make_valid()
 
-map_industri <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = industri_sf, aes(fill = value), color = NA) +
-  color_viridis +
+map_havne_industri <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
+  geom_sf(data = assessment_area_dissolved,
+          aes(fill = "Ikke tilstede"), color = "black", alpha = 1) +
+  geom_sf(data = industri_pts,
+          aes(fill = "Tilstede"), shape = 21, color = "black", size = 2.5) +
+  scale_fill_manual(name = NULL,
+                    values = c("Tilstede" = "red", "Ikke tilstede" = "#9FBDD8"))+
   boundary +
   theme_minimal() +
   my_theme +
+  theme(legend.position = c(.95, .95),
+        legend.justification = c("right", "top"),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.text = element_text(size = 16))+
   north_arrow +
   scale_bar
-map_industri
-
-ggsave(plot = map_industri,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg", "havne_industri.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+map_havne_industri
 
 
+
+gem_trim(map_havne_industri,
+         file.path(PATHS$output_pressure_png, "anlaeg", "havne_industri_frak.png"),
+         dpi = 360, width_cm = 18)
 
 # Lystbåd (buffer-fraktion)
-map_lystbaad <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = lystbaad_pts, color = "yellow",size = 3) +
-  color_viridis +
+map_havne_lyst <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
+  geom_sf(data = assessment_area_dissolved,
+          aes(fill = "Ikke tilstede"), color = "black", alpha = 1) +
+  geom_sf(data = lystbaad_pts,
+          aes(fill = "Tilstede"), shape = 21, color = "black", size = 2.5) +
+  scale_fill_manual(name = NULL,
+                    values = c("Tilstede" = "red", "Ikke tilstede" = "#9FBDD8"))+
   boundary +
   theme_minimal() +
   my_theme +
+  theme(legend.position = c(.95, .95),
+        legend.justification = c("right", "top"),
+        legend.background = element_rect(fill = "transparent", colour = NA),
+        legend.text = element_text(size = 16))+
   north_arrow +
   scale_bar
-map_lystbaad
+map_havne_lyst
 
-ggsave(plot = map_lystbaad,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg", "havne_lystbaad.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
 
+
+
+gem_trim(map_havne_lyst,
+         file.path(PATHS$output_pressure_png, "anlaeg", "havne_lystbaad_frak.png"),
+         dpi = 360, width_cm = 18)
 
 
 

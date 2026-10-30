@@ -58,9 +58,6 @@ terra::writeRaster(
 
 ############### Plotting for bilag ################
 
-
-viridis_start_color <- viridis_pal()(1)
-
 map_fyr_buffer <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief
   geom_sf(data = assessment_area_dissolved,
