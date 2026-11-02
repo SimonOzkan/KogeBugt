@@ -34,23 +34,16 @@ FDHP_250 <- terra::project(FDHP, grid_raster, method = "bilinear")
 
 
 ## ------------------------------------------------------------------
-## 3. Maskér til assessment-området
+## 3. Fill evt na og masker og gem
 ## ------------------------------------------------------------------
 
-FDHP_koge <- terra::mask(FDHP_250, assessment_area_vect)
+FDHP_koge <- fill_na(FDHP_250, grid_raster, w = 3)
 
+names(FDHP_koge) <- "value"
 
-## ------------------------------------------------------------------
-## 4. Re-normalisér 0-1 inden for området
-## ------------------------------------------------------------------
-# scale_linear bruger nu kun celler i Køge Bugt (fordi vi har maskeret først).
-
-FDHP_norm <- terra::scale_linear(FDHP_koge)
-names(FDHP_norm) <- "value"
-
-plot(FDHP_norm)
-terra::writeRaster(FDHP_norm,
-                   file.path(PATHS$output_pressure_tif, "forstyrrelse_tilstedevaerelse_norm.tif"),
+plot(FDHP_koge)
+terra::writeRaster(FDHP_koge,
+                   file.path(PATHS$output_pressure_tif, "mennesker_fysisk_forstyrrelse.png"),
                    overwrite = TRUE)
 
 
@@ -58,19 +51,14 @@ terra::writeRaster(FDHP_norm,
 ## 5. Plotting for bilag
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
-
-FDHP_sf <- FDHP_norm %>%
+FDHP_sf <- FDHP_koge %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_transform(crs = target_crs) %>%
   st_make_valid()
 
 map_FDHP <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = FDHP_sf, aes(fill = value), color = NA) +
   color_viridis +
   boundary +
@@ -80,6 +68,7 @@ map_FDHP <- ggplot() +
   scale_bar
 map_FDHP
 
-ggsave(plot = map_FDHP,
-       filename = file.path(PATHS$output_pressure_png, "forstyrrelse_tilstedevaerelse.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+gem_trim(map_FDHP,
+         file.path(PATHS$output_pressure_png, "mennesker_fysisk_forstyrrelse.png"),
+         dpi = 360, width_cm = 18)
+

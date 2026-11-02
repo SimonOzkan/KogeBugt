@@ -33,10 +33,10 @@ fuglejagt_250 <- terra::project(fuglejagt, grid_raster, method = "bilinear")
 
 
 ## ------------------------------------------------------------------
-## 3. Maskér til assessment-området
+## 3. Fill na og masker
 ## ------------------------------------------------------------------
 
-fuglejagt_koge <- terra::mask(fuglejagt_250, assessment_area_vect)
+fuglejagt_koge <- fill_na(fuglejagt_250, grid_raster, w = 3)
 
 
 ## ------------------------------------------------------------------
@@ -44,12 +44,12 @@ fuglejagt_koge <- terra::mask(fuglejagt_250, assessment_area_vect)
 ## ------------------------------------------------------------------
 # scale_linear bruger nu kun celler i Køge Bugt (fordi vi har maskeret først).
 
-fuglejagt_norm <- terra::scale_linear(fuglejagt_koge)
-names(fuglejagt_norm) <- "value"
 
-plot(fuglejagt_norm)
-terra::writeRaster(fuglejagt_norm,
-                   file.path(PATHS$output_pressure_tif, "fuglejagt_norm.tif"),
+names(fuglejagt_koge) <- "value"
+
+plot(fuglejagt_koge)
+terra::writeRaster(fuglejagt_koge,
+                   file.path(PATHS$output_pressure_tif, "fuglejagt","fuglejagt_koge.tif"),
                    overwrite = TRUE)
 
 
@@ -57,19 +57,15 @@ terra::writeRaster(fuglejagt_norm,
 ## 5. Plotting for bilag
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
 
-fuglejagt_sf <- fuglejagt_norm %>%
+fuglejagt_sf <- fuglejagt_koge %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_transform(crs = target_crs) %>%
   st_make_valid()
 
 map_fuglejagt <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = fuglejagt_sf, aes(fill = value), color = NA) +
   color_viridis +
   boundary +
@@ -79,6 +75,7 @@ map_fuglejagt <- ggplot() +
   scale_bar
 map_fuglejagt
 
-ggsave(plot = map_fuglejagt,
-       filename = file.path(PATHS$output_pressure_png, "fuglejagt.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+
+gem_trim(map_fuglejagt,
+         file.path(PATHS$output_pressure_png, "fuglejagt\\fuglejagt.png"),
+         dpi = 360, width_cm = 18)

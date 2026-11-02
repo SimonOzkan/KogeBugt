@@ -10,7 +10,7 @@ target_crs <- 25832
 # Install packages hvis de mangler
 required_packages <- c("terra","dplyr","sf","ggplot2", "tidyr", "purrr", "readr","readxl","patchwork", "raster","tidyterra",
                        "lubridate", "stringr", "forcats", "scales","gridExtra","grid","lattice","ggpubr","gt","writexl",
-                       "ggspatial","httr","ows4R","viridis", "viridisLite","mgcv","gdistance","magick","terrainr")
+                       "ggspatial","httr","ows4R","viridis", "viridisLite","mgcv","gdistance","magick","terrainr","car","sandwich","emmeans")
 
 new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 if(length(new_packages)) {

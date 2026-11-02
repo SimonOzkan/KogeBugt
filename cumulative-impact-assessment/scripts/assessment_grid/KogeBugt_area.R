@@ -45,7 +45,7 @@ req_praestoe <- paste0(
   "&outputFormat=application/json"
 )
 
-praestoe <-st_read(req_præstø) %>%
+praestoe <-st_read(req_praestoe) %>%
   filter(mst_id ==47)
 
 # Opret en dummy variabel til linjetypen i maritime_boundaries
@@ -71,33 +71,30 @@ ylim <- c(bbox["ymin"] - expand, bbox["ymax"] + expand)
 
 ggplot() +
   # Baggrundslag
-  geom_sf(data = map_eu,         fill = "grey85",      color = "grey60",    linewidth = 0.3) +
-  geom_sf(data = map_baltic_sea, fill = "lightblue",   color = "steelblue", linewidth = 0.3, alpha = 0.5) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   
+
   # Køge Bugt vandområde
-  geom_sf(data = koge_bugt,      fill = "lightcyan",   color = "darkcyan",  linewidth = 0.5, alpha = 0.6) +
+  geom_sf(data = koge_bugt,      fill = "steelblue",   color = "darkcyan",  linewidth = 0.5, alpha = 0.6) +
   
   # Vurderingsområder
-  geom_sf(data = syd_koge,       fill = "tomato",      color = "red3",      linewidth = 0.7, alpha = 0.5) +
+  geom_sf(data = syd_koge,       fill = "#F57376",      color = "#F57376",      linewidth = 0.7, alpha = 0.5) +
   geom_sf(data = nord_koge,      fill = "gold",        color = "goldenrod", linewidth = 0.7, alpha = 0.5) +
   
   # Præstø 
-  geom_sf(data = præstø,      fill = "lightgreen",        color = "lightgreen", linewidth = 0.7, alpha = 0.5) +
+  geom_sf(data = praestoe,      fill = "chartreuse4",        color = "chartreuse4", linewidth = 0.7, alpha = 0.5) +
   
   # Øresundsbroen
-  geom_sf(data = oeresund,       color = "purple",     linewidth = 1.2) +
+ # geom_sf(data = oeresund,       color = "purple",     linewidth = 1.2) +
   
   # Maritime grænser
   geom_sf(data = maritime_boundaries, color = "navy", linewidth = 0.8, linetype = "dashed") +
   
   # Zoom til området
-  coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
-  
+
   # Manuel legende via annotate (da lagene ikke deler én aes)
   labs(
-    title    = "Køge Bugt – Oversigt over lag",
-    subtitle = "Vurderingsområder, vandområde og grænser",
-    caption  = "CRS: EPSG 3035"
+    title    = "Køge Bugt",
   ) +
   
   # Falsk legende med fill + color
@@ -109,10 +106,12 @@ ggplot() +
     panel.grid    = element_line(color = "grey90"),
     axis.text     = element_text(size = 8)
   ) +
-  annotate("rect", xmin = -Inf, xmax = -Inf, ymin = -Inf, ymax = -Inf, fill = NA) + # dummy
-  guides() +
-  annotation_scale(location = "bl", width_hint = 0.2) +
-  annotation_north_arrow(location = "tl", style = north_arrow_fancy_orienteering())
+  boundary+
+  theme_minimal()+
+  my_theme+
+  north_arrow+
+  scale_bar
+
 
 # ── 1. Beregn maritime grænser inden for hvert område ─────────────────────────
 boundary_syd  <- st_intersection(maritime_boundaries, syd_koge)
@@ -124,11 +123,9 @@ nord_koge_split <- st_difference(nord_koge, st_union(boundary_nord))
 
 # ── 3. Udtræk polygoner og tildel id ──────────────────────────────────────────
 syd_koge_split <- syd_koge_split %>%
-  st_collection_extract("POLYGON") %>%
   mutate(id = row_number())
 
 nord_koge_split <- nord_koge_split %>%
-  st_collection_extract("POLYGON") %>%
   mutate(id = row_number())
 
 # Tjek hvilke id'er der findes (kør disse og inspicer før du fortsætter)
@@ -154,23 +151,21 @@ omrade_comb_split <- bind_rows(
   swe_koge_bugt,
   nord_dk_koge,
   koge_bugt,
-  praestoe_area          # <- Præstø med
+  praestoe          # <- Præstø med
 ) %>%
   mutate(id = as.factor(id)) %>%
   dplyr::select(id, area, geometry)
 
 ### omrade_comb_split er det der anvendes til assessment area / undersøgelsesområde
 # Denne "opløses" og gemmes og fra denne laves raster og shp laget med 250x250 m
-
+maritime_boundaries <- st_intersection(maritime_boundaries, assessment_area_dissolved)
 
 st_write(omrade_comb_split,file.path(PATHS$input_assessment_area, "shp","koge_split.shp" ),
          append = FALSE)
 
 map_vandomrader <- ggplot() +
-  geom_sf(data = map_baltic_sea, fill = "lightblue") +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = omrade_comb_split, aes(fill = id)) +
-  geom_sf(data = maritime_boundaries, aes(linetype = dummy_linetype), color = "black", linewidth = 1.4) + 
-  geom_sf(data = oeresund, color = "black") +
   scale_fill_manual(
     values = c("#4A90C4", "#E07B6A", "#D4B96A", "#E8924A", "#6AB06A"),
     labels = c("Køge Bugt",
@@ -181,42 +176,40 @@ map_vandomrader <- ggplot() +
     name = "Vandområder",
     guide = guide_legend(order = 1)
   ) + 
-  scale_linetype_manual(
-    values = c("Maritime grænser" = "dashed"),
-    name = "",
-    guide = guide_legend(order = 2)  # Placerer linjetypen under farvelegenden
-  ) +
-  geom_sf(data = map_eu, fill = 	"#c3fbb1") +
-  #coord_sf(xlim = c(4450000, 4545210), ylim = c(3539000, 3635709)) + #hele undersøgelsesområdet
   theme_minimal() +
   theme(
     axis.title.x = element_blank(),
     axis.title.y = element_blank(),
     axis.text.x = element_blank(),
     axis.text.y = element_blank(),
-    legend.position = c(0.81, 0.90),
+    legend.position = c(0.75, 0.85),
     legend.justification = "center",
-    legend.title = element_text(size = 20),
-    legend.text=element_text(size=18)
+    legend.title = element_text(size = 18),
+    legend.text=element_text(size=16)
   ) +
   annotation_north_arrow(
-    location = "br",
-    which_north = "true",
-    style = north_arrow_fancy_orienteering,
-    pad_x = unit(3.5, "cm"),
-    pad_y = unit(1, "cm"),
-    height = unit(1.8, "cm"),
-    width = unit(1.8,"cm")
-  ) +
-  annotation_scale(
+       location = "br",
+       which_north = "true",
+       style = north_arrow_fancy_orienteering,
+       pad_x = unit(5.5, "cm"),
+       pad_y = unit(2, "cm"),
+       height = unit(1.8, "cm"),
+       width = unit(1.8,"cm")
+     ) +
+    annotation_scale(
     location = "br",
     width_hint = 0.05,
     height = unit(0.4, "cm"),
     bar_cols = c("black", "white"),
-    pad_x = unit(0.2, "cm"),
-    pad_y = unit(1.5, "cm"),
-    text_cex = 1.2 # Juster tekststørrelse 
-  )
+    pad_x = unit(2.5, "cm"),
+    pad_y = unit(2.5, "cm"),
+      text_cex = 1.2 
+     )
 print(map_vandomrader)
+
+
+gem_trim(map_vandomrader,
+         file.path(PATHS$input_assessment_area, "Koge_bugt.png"),
+         dpi = 360, width_cm = 18)
 
 

@@ -17,7 +17,6 @@ varme <- terra::rast(file.path(PATHS$input_pressure,
                                "_ags_PL_06",
                                "PL_06.tif"))
 
-
 ## ------------------------------------------------------------------
 ## 2. Projicér til 250 m grid (1 km -> 250 m, bilinear)
 ## ------------------------------------------------------------------
@@ -31,20 +30,18 @@ varme_250 <- terra::project(varme, grid_raster, method = "bilinear")
 ## 3. Maskér til assessment-området
 ## ------------------------------------------------------------------
 
-varme_koge <- terra::mask(varme_250, assessment_area_vect)
-
+varme_koge <- fill_na(varme_250, grid_raster, w = 3)
 
 ## ------------------------------------------------------------------
 ## 4. Re-normalisér 0-1 inden for området
 ## ------------------------------------------------------------------
 # scale_linear bruger nu kun celler i Køge Bugt
 
-varme_norm <- terra::scale_linear(varme_koge)
-names(varme_norm) <- "value"
+names(varme_koge) <- "value"
 
-plot(varme_norm)
-terra::writeRaster(varme_norm,
-                   file.path(PATHS$output_pressure_tif, "varme_norm.tif"),
+plot(varme_koge)
+terra::writeRaster(varme_koge,
+                   file.path(PATHS$output_pressure_tif, "varme_tilførelse.tif"),
                    overwrite = TRUE)
 
 
@@ -52,19 +49,15 @@ terra::writeRaster(varme_norm,
 ## 5. Plotting for bilag
 ## ------------------------------------------------------------------
 
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(., crs = target_crs)
-viridis_start_color <- viridis_pal()(1)
 
-varme_sf <- varme_norm %>%
+varme_sf <- varme_koge %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_transform(crs = target_crs) %>%
   st_make_valid()
 
 map_varme <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = NA, alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = varme_sf, aes(fill = value), color = NA) +
   color_viridis +
   boundary +
@@ -74,6 +67,7 @@ map_varme <- ggplot() +
   scale_bar
 map_varme
 
-ggsave(plot = map_varme,
-       filename = file.path(PATHS$output_pressure_png, "varme.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+
+gem_trim(map_varme,
+         file.path(PATHS$output_pressure_png, "varme_tilførelse.png"),
+         dpi = 360, width_cm = 18)
