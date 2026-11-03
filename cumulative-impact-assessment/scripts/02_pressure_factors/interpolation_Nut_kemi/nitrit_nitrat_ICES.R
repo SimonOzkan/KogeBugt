@@ -140,6 +140,8 @@ baltic_DIN_df <- baltic_DIN %>%
 write.csv2(baltic_DIN_df, "C:\\Users\\SIO\\NIVA\\Køge Bugt - General\\data\\Pressure\\MFS_DIN_DIP\\DIN_ices.csv", row.names = FALSE)
 
 
+
+
 #### PO4/DIP ##### (Winter)
 baltic_DIP <- stationSamples_baltic %>%
   mutate(Phosphate = ifelse(PhosphateQ == 4 | PhosphateQ == 8, NA,Phosphate)) %>%
@@ -152,5 +154,10 @@ baltic_DIP <- stationSamples_baltic %>%
   mutate(Parameter = "DIP")
 
 write.csv2(baltic_DIP, "C:\\Users\\SIO\\NIVA\\Køge Bugt - General\\data\\Pressure\\MFS_DIN_DIP\\DIP_ices.csv", row.names = FALSE)
+
+
+
+
+
 
 

@@ -7,8 +7,6 @@
 
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
-library("car")
-
 
 ## ------------------------------------------------------------------
 ## 0. Parametre
@@ -23,6 +21,14 @@ min_obs_station <- 2
 min_months_year <- 2
 
 
+bbox_koge <- st_read(file.path(PATHS$input_assessment_area,"bbox_omraade","koge_bugt_bbox.shp")) %>%
+  st_transform(., crs = target_crs)
+
+baltic_extent <- st_read(file.path(PATHS$input_assessment_area,"shp","ices_extented.gpkg")) %>%
+  st_transform(., crs = target_crs)
+
+
+
 ## ------------------------------------------------------------------
 ## 1. Indlæs data
 ## ------------------------------------------------------------------
@@ -33,6 +39,20 @@ oda <- read_csv2(file.path(PATHS$input_pressure, "MFS_DIN_DIP",
                  locale = locale(encoding = "latin1")) %>%
   mutate(date_correct = ymd(Startdato),
          year = year(date_correct), month = month(date_correct))
+
+### finder DIP maximum
+
+
+baltic_DIP_mn_cluster <- DIP_ices %>%
+  group_by(ClusterID) %>%
+  summarise(mean_dip = mean(Value * 30.973762, na.rm = TRUE),     #    ## PO4-P µmol/l -> µg P/l
+            n_obs = n(), .groups ="drop" ) 
+
+baltic_min_max_DIP <- baltic_DIP_mn_cluster %>%
+  filter(!n_obs <= 3) %>%
+  group_by() %>%
+  summarise(max_dip = max(mean_dip, na.rm = TRUE),       
+            min_dip = min(mean_dip, na.rm = TRUE), .groups ="drop" )
 
 
 ## ------------------------------------------------------------------
@@ -96,13 +116,15 @@ ices_df <- DIP_ices %>%
             value = Value * ices_value_faktor,
             metode = "ICES",
             Longitude, Latitude) %>%
-  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326) %>%
+  st_as_sf(coords = c("Longitude", "Latitude"), crs = 4326, remove = FALSE) %>%
+  filter(!(Latitude > 55.6 & Longitude < 12.3),
+         !Longitude < 11.78) %>% ############  Fjerner stationer fra Roskilde Fjord og Smålandsfarvandet
   st_transform(target_crs) %>%
   mutate(x = st_coordinates(.)[, 1], y = st_coordinates(.)[, 2]) %>%
-  st_intersection(assessment_area_dissolved) %>%
+  # st_intersection(assessment_area_dissolved) %>%
+  st_intersection(bbox_koge) %>%
   st_drop_geometry() %>%
   dplyr::select(stedID, Parameter, source, date, year, month, depth, value, metode, x, y)
-
 
 ## ------------------------------------------------------------------
 ## 4. ICES-dubletter -> omdøb til nærmeste ODA-station
@@ -170,7 +192,8 @@ glm_df <- dat %>%
 
 # Additiv model på log10-skala: station + år + sæson
 m_glm <- lm(log10(value + 1) ~ Station + yearf + monthf, data = glm_df)
-plot(m_glm)                                   # tjek Residuals vs Fitted (heteroskedasticitet?)
+#plot(m_glm)                                   # tjek Residuals vs Fitted (heteroskedasticitet?)
+
 
 vc  <- vcovHC(m_glm, type = "HC3")            # robuste SE (heteroskedasticitet)
 sig <- sigma(m_glm)                           # residual-SD til bias-korrektion
@@ -265,7 +288,7 @@ ggplot(sammenlign, aes(value_maalt, value_model)) +
 ## ==================================================================
 ## 0. Parametre  (ArcGIS-ækvivalenter)
 ## ==================================================================
-bandwidth   <- 60000      # m: kernel-bandbredde (ArcGIS "Bandwidth")
+bandwidth   <- 10000      # m: kernel-bandbredde (ArcGIS "Bandwidth")
 power       <- 1          # 1 = lokal lineær (ArcGIS "Power"); 0 = kerne-vægtet middel
 ridge       <- 0.1          # ridge-stabilisering (IKKE Esris 100 - kalibrér, se LOO nederst)
 kernel_type <- "gaussian" # "gaussian" | "exponential" | "quartic"
@@ -274,19 +297,23 @@ min_weight  <- 1e-6       # celler hvor alle vægte < dette -> NA (for langt fra
 
 # Hvilket data-snit interpoleres? Ét år, eller middel over en periode.
 target_year <- NULL       # fx 2024 for ét år; NULL -> middel over 'period_years'
-period_years <- 2010:2024 # bruges når target_year er NULL
+period_years <- 2014:2024 # bruges når target_year er NULL
 
 
 # log værdi for hver station og beholder koorDIPator
 
 DIP_emmeans <- read.csv(file.path(PATHS$input_pressure, "MFS_DIN_DIP","GLM_DIP.csv"))
 
-pts <- DIP_emmeans %>%
+pts <- DIP_emmeans %>% 
+  filter(year %in% period_years) %>% #Anvender 10 års gennemsnit, herved kan min og max fra hele baltic sea anvendes
   mutate(lvalue = log10(value + 1)) %>%
   group_by(Station, x, y) %>%
   summarise(lvalue = mean(lvalue, na.rm = TRUE), .groups = "drop")
 
-
+###### water_vect er lavet eftersom ICES har nogle punkter der ligger lige udenfor selve assessment grid, men er en del af boundary box
+# Disse skal derfor tages med og hjælper til at tildele værdier nede i det syd-østlige hjørne af området
+water <- st_union(assessment_area_dissolved,baltic_extent)
+water_vect <- terra::vect(water)   
 ## ==================================================================
 ## 2. Afstandsmatrix celle -> station  (Euklidisk eller cost/barriere)
 ## ==================================================================
@@ -295,12 +322,12 @@ st_xy   <- as.matrix(pts[, c("x", "y")])
 
 if (!use_barrier) {
   # Euklidisk: D[j, i] = afstand fra celle j til station i
-  D <- outer(cell_xy[, 1], st_xy[, 1], "-")^2 +
+  D <- outer(cell_xy[, 1], st_xy[, 1], "-")^2 + ## outer bruges til at lave en matrix af samtlige afstande mellem gridceller og stationer. ^2 er pythagoras afstand
     outer(cell_xy[, 2], st_xy[, 2], "-")^2
-  D <- sqrt(D)
+  D <- sqrt(D)       # tilbage til meter afstand fra kvm
 } else {
   # Vand-maske: 1 inde i området (vand), NA udenfor (land) -> NA = barriere
-  water <- terra::rasterize(assessment_area_vect, grid_raster, field = 1, background = NA)
+  water <- terra::rasterize(water_vect, grid_raster, field = 1, background = NA)
   rl <- raster::raster(water)                     
   
   tr <- gdistance::transition(rl, transitionFunction = function(x) 1, directions = 16)
@@ -390,25 +417,25 @@ conc_r_DIP <- 10^pred_r_DIP - 1
 # SE på koncentrations-skala via delta-metode: d(10^p)/dp = ln(10)*10^p
 conc_se_r_DIP<- log(10) * (10^pred_r_DIP) * se_r_DIP
 
-conc_r_DIP <- terra::mask(conc_r_DIP,    assessment_area_vect)
-conc_se_r_DIP <- terra::mask(conc_se_r_DIP, assessment_area_vect)
+conc_r_DIP <- terra::mask(conc_r_DIP,    grid_raster)
+conc_se_r_DIP <- terra::mask(conc_se_r_DIP, grid_raster)
 names(conc_r_DIP) <- "DIP_ugl"
 names(conc_se_r_DIP) <- "SE_DIP_ugl"
 
 # normaliseret presfaktor-lag 0-1 (efter maskering)
-DIP_norm <- terra::scale_linear(conc_r_DIP)
+DIP_norm <-  clamp((conc_r_DIP - baltic_min_max_DIP$min_dip) / (baltic_min_max_DIP$max_dip - baltic_min_max_DIP$min_dip), upper = 1, values = TRUE)
 names(DIP_norm) <- "value"
+
+plot(DIP_norm)
 
 terra::writeRaster(conc_r_DIP,    file.path(PATHS$output_pressure_tif, "nutrients","vinter_DIP_kernel_ugl.tif"),      overwrite = TRUE)
 terra::writeRaster(conc_se_r_DIP, file.path(PATHS$output_pressure_tif, "nutrients","vinter_DIP_kernel_se.tif"),       overwrite = TRUE)
 terra::writeRaster(DIP_norm,   file.path(PATHS$output_pressure_tif, "nutrients","vinter_DIP_kernel_norm.tif"),     overwrite = TRUE)
-
-plot(conc_r_DIP)
+# Vinter DIP
 ## ==================================================================
 ## 5. Bilag-plots (værdi + usikkerhed)
 ## ==================================================================
-map_eu <- st_read(file.path(PATHS$input_assessment_area, "/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(crs = target_crs)
+
 pts_sf <- pts %>%
   distinct(Station, x,y) %>%
   st_as_sf(., coords = c("x", "y"), crs = target_crs, remove = FALSE)
@@ -427,36 +454,45 @@ conc_norm_as_sf_DIP <- DIP_norm %>%
   st_make_valid() 
 
 
-maalt_2010_2024mean<- comb_final %>%
-  filter(year %in% c(2010:2024)) %>%
-  group_by(stedID,x,y) %>%
+samlet_2014_2024mean<- samlet_df_final_DIP %>%
+  filter(year %in% c(2014:2024)) %>%
+  group_by(Station,kilde,x,y) %>%
   summarise(mn_val = mean(value, na.rm =TRUE), .groups = "drop") %>%
   st_as_sf(., coords = c(x= "x", y="y"), crs = target_crs) %>%
   st_transform(target_crs) %>% 
   st_make_valid() 
 
-ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
+kernel_stat_DIP <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = conc_as_sf_DIP, aes(fill = DIP_ugl), color = NA) +
-  geom_sf(data = maalt_2010_2024mean, aes(fill = mn_val),
-          shape = 21, color = "white", size = 8) +
-  #geom_text(data =pts_sf, aes(x=x, y=y, label = Station))+
-  geom_text(data = ices_pos, aes(x = x, y = y, label = stedID))+
-  scale_fill_viridis_c(name = "TN (µg/l)") +      
-  labs(title = "Marin DIP (kernel) og målte stationsmidler 2010–2024, samt Station navne på samtlige stationer") +
+  geom_sf(data = samlet_2014_2024mean, aes(fill = mn_val, color = kilde),
+          shape = 21, size = 8) +
+  scale_fill_viridis_c(name = "TN (µg/l)") +    
+  scale_color_manual(name = "Kilde",
+                     values = c("modelleret" = "red",
+                                "målt"       = "purple")) +
+  labs(title = "Marin DIP (kernel) og modellerede og målte 2014–2024") +
   theme_minimal() + boundary
 
-
-# normaliseret TN
-
-map_tn_normal <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = tn_norm_as_sf, aes(fill = value), color = NA) +
-  #geom_sf(data = pts_sf, color = "red", size = 0.6) +
-  color_viridis + boundary +
-  theme_minimal() + my_theme + north_arrow + scale_bar
-ggsave(plot = map_tn_normal, filename = file.path(PATHS$output_pressure_png,"nutrients" ,"total_nitrogen_kernel_normalized.png"),
+ggsave(plot = kernel_stat_DIP, filename = file.path(PATHS$output_pressure_png,"nutrients" ,"kernel_stat_model_maalt_DIP.png"),
        bg = "white", height = 18, width = 18, dpi = 300)
+# normaliseret DIP
+
+map_DIP_normal <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
+  geom_sf(data = conc_norm_as_sf_DIP, aes(fill = value), color = NA) +
+  color_viridis+
+  boundary+
+  theme_minimal()+
+  my_theme+
+  north_arrow+
+  scale_bar
+
+
+gem_trim(map_DIP_normal,
+         file.path(PATHS$output_pressure_png,"nutrients" ,"DIP_normaliseret.png"),
+         dpi = 360, width_cm = 18)
+
 
 # usikkerhed (SE i µg/l)
 se_sf <- to_sf(conc_se_r, "se")
@@ -471,17 +507,7 @@ map_se <- ggplot() +
 ggsave(plot = map_se, filename = file.path(PATHS$output_pressure_png, "total_nitrogen_kernel_se.png"),
        bg = "white", height = 18, width = 18, dpi = 300)
 
-# ikke normaliseret TN værdier, er visuelt mere sigende
 
-map_DIP<- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = conc_as_sf_DIP, aes(fill = DIP_ugl), color = NA) +
-  #geom_sf(data = pts_sf, color = "red", size = 0.6) +
-  scale_fill_viridis_c(name = "DIP (µg/l)")+ boundary +
-  theme_minimal() + my_theme + north_arrow + scale_bar
-
-ggsave(plot = map_tn, filename = file.path(PATHS$output_pressure_png,"nutrients" ,"total_nitrogen_kernel.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
 
 ## ==================================================================
 ## 6. (valgfrit) LOO-krydsvalidering -> kalibrér bandwidth + ridge
@@ -518,3 +544,39 @@ grid_par <- expand.grid(bw = c(5000, 10000, 20000, 50000),
 grid_par$rmse <- mapply(function(bw, rg) loo_rmse(pts, bw, rg, power, kernel_type),
                         grid_par$bw, grid_par$rg)
 print(grid_par[order(grid_par$rmse), ])
+
+############# Viser hvilke stationer der er brugt til interpolation og hvor lang ud i gridded
+
+## --- vægte pr. celle x station (samme kerne som interpolationen) ---
+W <- kern(D / bandwidth)          # D = celle x station (cost-afstande m. barriere)
+W[!is.finite(D)] <- 0             # ikke nåelige (land) -> 0
+W[W < min_weight] <- 0
+
+## 1) EFFEKTIVT ANTAL bidragende stationer pr. celle (Kish n_eff) -- det bedste "overlap"-mål
+sumw  <- rowSums(W,   na.rm = TRUE)
+sumw2 <- rowSums(W^2, na.rm = TRUE)
+n_eff <- ifelse(sumw2 > 0, sumw^2 / sumw2, NA)
+
+## 2) SIMPELT antal stationer inden for en meningsfuld radius (det du beskriver med ringene)
+R     <- bandwidth * sqrt(log(1/0.1))     # radius hvor gaussisk vægt = 0,1  (~91 km ved h=60 km)
+count <- rowSums(D <= R, na.rm = TRUE)     # NA (land/ikke nåelig) tæller ikke med
+
+## --- byg rastre ---
+neff_r  <- grid_raster; values(neff_r)  <- n_eff
+count_r <- grid_raster; values(count_r) <- count
+neff_r  <- mask(neff_r,  assessment_area_vect)
+count_r <- mask(count_r, assessment_area_vect)
+
+## --- plot: overlap-raster + stationer + ringe ---
+stationer <- st_as_sf(pts, coords = c("x","y"), crs = target_crs)
+ringe     <- st_buffer(stationer, R)       # euklidiske ringe (vejledende)
+
+ggplot() +
+  geom_spatraster(data = count_r) +
+  geom_sf(data = ringe,     fill = NA, color = "white", linewidth = 0.25) +
+  geom_sf(data = stationer, color = "red", size = 1) +
+  scale_fill_viridis_c(na.value = "transparent",
+                       name = "Antal stationer\ninden for ~91 km") +
+  labs(title = "Datadækning: hvor mange stationer bidrager til hver celle") +
+  theme_minimal()
+
