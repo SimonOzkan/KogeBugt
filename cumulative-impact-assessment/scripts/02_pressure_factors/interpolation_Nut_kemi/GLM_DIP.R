@@ -27,6 +27,9 @@ bbox_koge <- st_read(file.path(PATHS$input_assessment_area,"bbox_omraade","koge_
 baltic_extent <- st_read(file.path(PATHS$input_assessment_area,"shp","ices_extented.gpkg")) %>%
   st_transform(., crs = target_crs)
 
+oresund_extent <- st_read(file.path(PATHS$input_assessment_area,"shp","oresund_extent_poly.shp")) %>%
+  st_transform(., crs = target_crs)
+
 
 
 ## ------------------------------------------------------------------
@@ -174,7 +177,8 @@ comb_final <- df_comb_filter %>%
   group_by(stedID, year) %>% 
   summarise(n_pr_yr = n(), .groups = "drop") %>%
   left_join(df_comb_filter, by = c("stedID", "year")) %>%
-  filter(n_pr_yr >= min_months_year) 
+  filter(n_pr_yr >= min_months_year,
+         !stedID %in% c("1416","2336")) # Fjerner stationer fra Stege Bugt
 
 ## ==================================================================
 ## 6. GLM (log10) - samme opsætning som TotN
@@ -280,15 +284,13 @@ ggplot(sammenlign, aes(value_maalt, value_model)) +
   theme_minimal()
 
 ## ==================================================================
-## FORBEHOLD (skriv i metoden)
 ## ==================================================================
-# - AnalyseMetode antages sammenlignelig. Diagnostikken viste dog signifikante
 #  
 
 ## ==================================================================
 ## 0. Parametre  (ArcGIS-ækvivalenter)
 ## ==================================================================
-bandwidth   <- 10000      # m: kernel-bandbredde (ArcGIS "Bandwidth")
+bandwidth   <- 25000      # m: kernel-bandbredde (ArcGIS "Bandwidth") # 25000 er valgt da man dermed får dækket alle celler ud fra stationsværdier og med acceptabel RMSE 
 power       <- 1          # 1 = lokal lineær (ArcGIS "Power"); 0 = kerne-vægtet middel
 ridge       <- 0.1          # ridge-stabilisering (IKKE Esris 100 - kalibrér, se LOO nederst)
 kernel_type <- "gaussian" # "gaussian" | "exponential" | "quartic"
@@ -312,7 +314,8 @@ pts <- DIP_emmeans %>%
 
 ###### water_vect er lavet eftersom ICES har nogle punkter der ligger lige udenfor selve assessment grid, men er en del af boundary box
 # Disse skal derfor tages med og hjælper til at tildele værdier nede i det syd-østlige hjørne af området
-water <- st_union(assessment_area_dissolved,baltic_extent)
+water <- st_union(assessment_area_dissolved,baltic_extent) %>%
+  st_union(oresund_extent) 
 water_vect <- terra::vect(water)   
 ## ==================================================================
 ## 2. Afstandsmatrix celle -> station  (Euklidisk eller cost/barriere)
@@ -467,15 +470,16 @@ kernel_stat_DIP <- ggplot() +
   geom_sf(data = conc_as_sf_DIP, aes(fill = DIP_ugl), color = NA) +
   geom_sf(data = samlet_2014_2024mean, aes(fill = mn_val, color = kilde),
           shape = 21, size = 8) +
-  scale_fill_viridis_c(name = "TN (µg/l)") +    
+  scale_fill_viridis_c(name = "DIP (µg/l)") +    
   scale_color_manual(name = "Kilde",
                      values = c("modelleret" = "red",
                                 "målt"       = "purple")) +
   labs(title = "Marin DIP (kernel) og modellerede og målte 2014–2024") +
   theme_minimal() + boundary
 
-ggsave(plot = kernel_stat_DIP, filename = file.path(PATHS$output_pressure_png,"nutrients" ,"kernel_stat_model_maalt_DIP.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+gem_trim(kernel_stat_DIP,
+         file.path(PATHS$output_pressure_png,"nutrients" ,"kernel_stat_model_maalt_DIP.png"),
+         dpi = 360, width_cm = 18)
 # normaliseret DIP
 
 map_DIP_normal <- ggplot() +
@@ -495,17 +499,17 @@ gem_trim(map_DIP_normal,
 
 
 # usikkerhed (SE i µg/l)
-se_sf <- to_sf(conc_se_r, "se")
-map_se <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
-  geom_sf(data = se_sf, aes(fill = se), color = NA) +
-  geom_sf(data = pts_sf, color = "black", size = 0.6) +
-  scale_fill_viridis_c(option = "magma", direction = -1, name = "SE (µg/l)") +
-  boundary +
-  labs(title = "Marin total-N - standardfejl (kernel smoothing)") +
-  theme_minimal() + my_theme + north_arrow + scale_bar
-ggsave(plot = map_se, filename = file.path(PATHS$output_pressure_png, "total_nitrogen_kernel_se.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+# se_sf <- to_sf(conc_se_r, "se")
+# map_se <- ggplot() +
+#   geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.3) +
+#   geom_sf(data = se_sf, aes(fill = se), color = NA) +
+#   geom_sf(data = pts_sf, color = "black", size = 0.6) +
+#   scale_fill_viridis_c(option = "magma", direction = -1, name = "SE (µg/l)") +
+#   boundary +
+#   labs(title = "Marin total-N - standardfejl (kernel smoothing)") +
+#   theme_minimal() + my_theme + north_arrow + scale_bar
+# ggsave(plot = map_se, filename = file.path(PATHS$output_pressure_png, "total_nitrogen_kernel_se.png"),
+#        bg = "white", height = 18, width = 18, dpi = 300)
 
 
 
@@ -564,8 +568,8 @@ count <- rowSums(D <= R, na.rm = TRUE)     # NA (land/ikke nåelig) tæller ikke
 ## --- byg rastre ---
 neff_r  <- grid_raster; values(neff_r)  <- n_eff
 count_r <- grid_raster; values(count_r) <- count
-neff_r  <- mask(neff_r,  assessment_area_vect)
-count_r <- mask(count_r, assessment_area_vect)
+neff_r  <- mask(neff_r,  grid_raster)
+count_r <- mask(count_r, grid_raster)
 
 ## --- plot: overlap-raster + stationer + ringe ---
 stationer <- st_as_sf(pts, coords = c("x","y"), crs = target_crs)
@@ -576,7 +580,7 @@ ggplot() +
   geom_sf(data = ringe,     fill = NA, color = "white", linewidth = 0.25) +
   geom_sf(data = stationer, color = "red", size = 1) +
   scale_fill_viridis_c(na.value = "transparent",
-                       name = "Antal stationer\ninden for ~91 km") +
+                       name = "Antal stationer\ninden for ~38 km") +
   labs(title = "Datadækning: hvor mange stationer bidrager til hver celle") +
   theme_minimal()
 

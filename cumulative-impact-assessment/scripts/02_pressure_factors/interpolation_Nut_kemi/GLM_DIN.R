@@ -15,6 +15,9 @@ baltic_extent <- st_read(file.path(PATHS$input_assessment_area,"shp","ices_exten
   st_transform(., crs = target_crs)
 
 
+oresund_extent <- st_read(file.path(PATHS$input_assessment_area,"shp","oresund_extent_poly.shp")) %>%
+  st_transform(., crs = target_crs)
+
 
 ## ------------------------------------------------------------------
 ## 0. Parametre
@@ -174,7 +177,9 @@ df_comb_filter <- df_comb %>%
 comb_final <- df_comb_filter %>%
   group_by(stedID, year) %>% summarise(n_pr_yr = n(), .groups = "drop") %>%
   left_join(df_comb_filter, by = c("stedID", "year")) %>%
-  filter(n_pr_yr >= min_months_year) %>% dplyr::select(-n_pr_yr) 
+  filter(n_pr_yr >= min_months_year,
+         !stedID %in% c("1416","2336")) %>%
+  dplyr::select(-n_pr_yr) 
 
 ## ==================================================================
 ## 6. GLM (log10) - samme opsætning som TotN
@@ -286,7 +291,7 @@ ggplot(sammenlign, aes(value_maalt, value_model)) +
 ## ==================================================================
 ## 0. Parametre  (ArcGIS-ækvivalenter)
 ## ==================================================================
-bandwidth   <- 10000      # m: kernel-bandbredde (ArcGIS "Bandwidth")
+bandwidth   <- 25000      # m: kernel-bandbredde (ArcGIS "Bandwidth")
 power       <- 1          # 1 = lokal lineær (ArcGIS "Power"); 0 = kerne-vægtet middel
 ridge       <- 0.1          # ridge-stabilisering (IKKE Esris 100 - kalibrér, se LOO nederst)
 kernel_type <- "gaussian" # "gaussian" | "exponential" | "quartic"
@@ -312,9 +317,10 @@ stn_sf <- pts %>% st_as_sf(coords = c("x","y"), crs = target_crs, remove = FALSE
 
 
 ###### water_vect er lavet eftersom ICES har nogle punkter der ligger lige udenfor selve assessment grid, men er en del af boundary box
-# Disse skal derfor tages med og hjælper til at tildele værdier nede i det syd-østlige hjørne af området
-water <- st_union(assessment_area_dissolved,baltic_extent)
-water_vect <- terra::vect(water)
+# Disse skal derfor tages med og hjælper til at tildele værdier nede i det syd-østlige hjørne af området samt lidt nord for øresund
+water <- st_union(assessment_area_dissolved,baltic_extent) %>%
+  st_union(oresund_extent) 
+water_vect <- terra::vect(water)   
 
 ## ==================================================================
 ## 2. Afstandsmatrix celle -> station  (Euklidisk eller cost/barriere)
@@ -428,7 +434,7 @@ names(conc_se_r_DIN) <- "SE_DIN_ugl"
 # normaliseret presfaktor-lag 0-1 (efter maskering)
 conc_r_DIN_norm <- clamp((conc_r_DIN - baltic_min_max_DIN$min_DIN) / (baltic_min_max_DIN$max_DIN - baltic_min_max_DIN$min_DIN), upper = 1, values = TRUE)
 plot(conc_r_DIN_norm)
-
+plot(conc_r_DIN)
 
 names(conc_r_DIN_norm) <- "value"
 
@@ -466,20 +472,21 @@ samlet_2014_2024mean<- samlet_df_final_DIN %>%
   st_transform(target_crs) %>% 
   st_make_valid() 
 
-kernel_stat <- ggplot() +
+kernel_stat_DIN <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = conc_as_sf_DIN, aes(fill = DIN_ugl), color = NA) +
   geom_sf(data = samlet_2014_2024mean, aes(fill = mn_val, color = kilde),
           shape = 21, size = 8) +
-  scale_fill_viridis_c(name = "TN (µg/l)") +    
+  scale_fill_viridis_c(name = "DIN (µg/l)") +    
   scale_color_manual(name = "Kilde",
                      values = c("modelleret" = "red",
                                 "målt"       = "purple")) +
   labs(title = "Marin DIN (kernel) og modellerede og målte 2014–2024") +
   theme_minimal() + boundary
 
-ggsave(plot = kernel_stat, filename = file.path(PATHS$output_pressure_png,"nutrients" ,"kernel_stat_model_maalt_DIN.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
+gem_trim(kernel_stat_DIN,
+         file.path(PATHS$output_pressure_png,"nutrients" ,"kernel_stat_model_maalt_DIN.png"),
+         dpi = 360, width_cm = 18)
 
 # normaliseret DIN
 
@@ -498,8 +505,6 @@ gem_trim(map_DIN_normal,
          dpi = 360, width_cm = 18)
 
 
-ggsave(plot = map_tn_normal, filename = file.path(PATHS$output_pressure_png,"nutrients" ,"total_nitrogen_kernel_normalized.png"),
-       bg = "white", height = 18, width = 18, dpi = 300)
 
 # usikkerhed (SE i µg/l)
 se_sf <- to_sf(conc_se_r, "se")
@@ -580,6 +585,6 @@ ggplot() +
   geom_sf(data = ringe,     fill = NA, color = "white", linewidth = 0.25) +
   geom_sf(data = stationer, color = "red", size = 1) +
   scale_fill_viridis_c(na.value = "transparent",
-                       name = "Antal stationer\ninden for ~91 km") +
+                       name = "Antal stationer\ninden for ~38 km") +
   labs(title = "Datadækning: hvor mange stationer bidrager til hver celle") +
   theme_minimal()
