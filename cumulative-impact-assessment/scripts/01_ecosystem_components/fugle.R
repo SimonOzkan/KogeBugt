@@ -106,4 +106,33 @@ writeRaster(fugle_mean, file.path(out_dir, "fugle_samlet_gennemsnit_norm.tif"),
 
 plot(fugle_grid); plot(fugle_mean)
 
+fugl <- terra::rast(file.path(PATHS$output_ecosystem_tif,"fugle","fugl_clangula_hyemalis_norm.tif"))
+
+
+
+plot(fugl)
+
+fugl_sf <- fugl %>%
+  terra::as.polygons(dissolve = FALSE) %>% 
+  st_as_sf() %>%
+  st_transform(target_crs) %>% 
+  st_make_valid() 
+
+
+map_fugl<- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
+  geom_sf(data = fugl_sf, aes(fill = clangula_hyemalis), color = NA) +
+  color_viridis+
+  boundary+
+  theme_minimal()+
+  my_theme+
+  north_arrow+
+  scale_bar
+
+
+gem_trim(map_fugl,
+         file.path(PATHS$output_ecosystem_png,"fugle" ,"fugl_norm.png"),
+         dpi = 360, width_cm = 18)
+
+
 

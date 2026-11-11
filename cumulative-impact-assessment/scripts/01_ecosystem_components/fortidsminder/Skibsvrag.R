@@ -54,17 +54,6 @@ skibsvrag_koge_rast <- terra::rasterize(
   background = 0
 )
 
-fill_na <- function(r, template, w = 3, max_iter = 200) {
-  out <- r
-  for (i in seq_len(max_iter)) {
-    # tæl NA-celler, der ligger INDEN for template-området
-    na_tilbage <- global(is.na(out) & !is.na(template), "sum")[1, 1]
-    if (na_tilbage == 0) break
-    filled <- terra::focal(out, w = w, fun = "mean", na.rm = TRUE)  # nabo-gennemsnit
-    out    <- terra::cover(out, filled)                             # behold eksisterende, fyld kun NA
-  }
-  mask(out, template)   
-}
 
 skibsvrag_rast <- fill_na(skibsvrag_koge_rast, grid_raster, w = 3)
 

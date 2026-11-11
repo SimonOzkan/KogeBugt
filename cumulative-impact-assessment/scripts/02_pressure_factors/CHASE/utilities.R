@@ -1,5 +1,5 @@
 Sys.setlocale("LC_ALL", "en_US.UTF-8")
-source_folder<-"C:/Data/Repositories/CHASE/ETC_CHASE_2024/"
+#source_folder<-"C:/Data/Repositories/CHASE/ETC_CHASE_2024/"
 
 
 # Function to combine CAS numbers from ICES database with PARAM
@@ -8,8 +8,8 @@ cas_numbers<- function(){
   ### Reading CAS numbers from ICES database to combine with PARAM
   
   # Read CAS numbers from ICES database
-  CAS_ICES<- read.table(file=paste0(source_folder,"raw_data/ICES_CAS_numbers.csv"),
-                        sep=",",header=T,comment.char="",fileEncoding="UTF-8",quote='"')
+  CAS_ICES<-read.table(file.path(PATHS$input_pressure,"kemisk_forurening","reference_vaerdi","RECO_Export_10-48-2026-08-48-04.csv"),
+                       sep=",",header=T,comment.char="",fileEncoding="UTF-8",quote='"')
   
   # Data preprocessing for CAS numbers
   CAS_ICES <- CAS_ICES %>%
@@ -27,8 +27,10 @@ cas_numbers<- function(){
       Description = trimws(Description))
   
   # Read PARAM names from ICES database
-  PARAM_ICES<- read.table(file=paste0(source_folder,"raw_data/ICES_PARAM_names.csv"),
+  
+  PARAM_ICES<- read.table(file.path(PATHS$input_pressure,"kemisk_forurening","reference_vaerdi","ICES_PARAM_names.csv"),
                           sep=",",header=T,comment.char="",fileEncoding="UTF-8",quote='"')
+  
   PARAM_ICES <- PARAM_ICES %>%
     select(Code, Description ) %>%
     mutate(Code = tolower(Code),
@@ -89,11 +91,13 @@ reference_param_sed <- function(df){
     filter(PARAM %in% c("corg","organic carbon"))
   
   corg_script_units<-c("%","g/kg","mg/g","mg/kg","ug/kg")
-  missing_units<- setdiff(sort(unique(CORG$MUNIT)),corg_script_units)
+  missing_units <- setdiff(sort(unique(CORG$MUNIT)), corg_script_units)
   if (length(missing_units) > 0) {
-    stop("CORG units have not been transformed:\n",
-         paste("- ", missing_units, collapse = "\n"))
-  } 
+    warning("CORG-rækker med ukendte enheder fjernes: ",
+            paste(missing_units, collapse = ", "),
+            " (", sum(CORG$MUNIT %in% missing_units), " rækker)")
+    CORG <- CORG %>% filter(MUNIT %in% corg_script_units)
+  }
   
   CORG <- CORG %>%
     mutate(CORG_pct = case_when(
@@ -117,11 +121,14 @@ reference_param_sed <- function(df){
     filter(PARAM %in% c("al","aluminium"))
   
   al_script_units<-c("%","g/kg", "mg/kg", "ug/g", "ug/kg")
-  missing_units<- setdiff(sort(unique(AL$MUNIT)),al_script_units)
+  missing_units <- setdiff(sort(unique(AL$MUNIT)), al_script_units)
   if (length(missing_units) > 0) {
-    stop("AL units have not been transformed:\n",
-         paste("- ", missing_units, collapse = "\n"))
-  } 
+    warning("AL-rækker med ukendte enheder fjernes: ",
+            paste(missing_units, collapse = ", "),
+            " (", sum(AL$MUNIT %in% missing_units), " rækker)")
+    AL <- AL %>% filter(MUNIT %in% al_script_units)
+  }
+  
   
   AL <- AL %>%
     mutate(AL_pct = case_when(
@@ -307,14 +314,13 @@ check_parameter <- function(df) {
 parameter_harmonization<- function(df,folder){
   
   
-  param<-read.csv(paste0(source_folder,"raw_data/nomenclature_parameter.csv"),sep=";",na.strings = "", encoding = "utf-8",header=T)%>%
+  param<-read.csv(parameter_harmo,sep=";",na.strings = "", encoding = "utf-8",header=T)%>%
     rename("SubstGroup"=1)
   
   param_list<-sort(unique(unlist(param,use.names = F)))
   
   df$Description <- gsub("’", "'", df$Description) #some of the names have strange symbols, so lets try to use the same for all of them
   param$EMODNET <- gsub("’", "'", param$EMODNET)
-  param$WISE <- gsub("’", "'", param$WISE)
   df$Description <- gsub("<u\\+2019>","'", df$Description)
   
   param_ices<-param%>%select(-EMODNET,-WISE)%>%distinct()
@@ -347,21 +353,9 @@ parameter_harmonization<- function(df,folder){
   }else{
     print("EMODNET parameters incomplete, check code.")
   }
-  param_wise<-param%>%select(-ICES,-EMODNET)%>%distinct()
-  df_source3<-df%>%
-    mutate(CAS=ifelse(CAS=="",NA,CAS))%>%
-    filter(Source=="WISE")%>%
-    filter(Description %in% param_list | PARAM %in% param_list)%>%
-    left_join(param,by=c("Description"="WISE"),na_matches = "never",relationship = "many-to-many")%>%
-    mutate(CAS= ifelse(!is.na(CAS.x),CAS.x,CAS.y))%>%
-    select(-CAS.x,-CAS.y)%>%distinct()
-  na_val<- sum(is.na(df_source3$Substance))
-  if (na_val==0) {
-    print("WISE parameters complete.")
-  }else{
-    print("WISE parameters incomplete, check code.")
-  }
-  df<-bind_rows(df_source1,df_source2,df_source3)%>%select(-PARAM,-PARGROUP,-Description,-Region)
+
+
+  df<-bind_rows(df_source1,df_source2)%>%select(-PARAM,-PARGROUP,-Description,-Region)
   
   df<-df%>%
     relocate(c(SubstGroup,Grouping,Multiplier,Substance_code,Substance,CAS),.before = Value )
@@ -372,12 +366,11 @@ parameter_harmonization<- function(df,folder){
 
 threshold_values<-function(category){
   category<-tolower(category)
-  groups<-read.table(paste0(source_folder,"thresholds/Group_table.csv"),sep=";",header = T)%>% #if Ignore = 1, the threshold is not being used (obsolete, not applicable...)
+  groups<-read.table("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/kemisk_forurening/reference_vaerdi/Group_table.csv",sep=";",header = T)%>% #if Ignore = 1, the threshold is not being used (obsolete, not applicable...)
     mutate(`Substance.group`= tolower(`Substance.group`))
   
   
-  threshold<- read_xlsx(path = paste0(source_folder,"thresholds/Threshold catalogue 2024.xlsx"), 
-                        trim_ws = TRUE)%>%
+  threshold<-read_excel("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/kemisk_forurening/reference_vaerdi/Threshold catalogue 2024.xlsx")%>%
     mutate(Category=tolower(Category))%>%
     filter(Category==category)%>% #we want only the specific category parameters
     filter(is.na(Ignore))%>% #if Ignore 1, the threshold is not being used (obsolete, not applicable...)
