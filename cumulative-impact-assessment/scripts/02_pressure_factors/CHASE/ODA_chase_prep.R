@@ -258,7 +258,8 @@ oda_vand <- oda_kemi_vand %>%
   transmute(source = "ODA", station = as.character(ObservationsStedNr),
             date = as.Date(Startdato), lon, lat, cas = CAS,param = Parameter,
             value_u, under_loq, limit_u,unit = "ug/l",
-            organ = NA_character_, biota_type = NA_character_)
+            organ = NA_character_, biota_type = NA_character_,
+            category = "vand")
 
 # SEDIMENT  (µg/kg tørvægt; Længde/Bredde = WGS84)
 oda_sed <- oda_kemi_sed %>%
@@ -270,21 +271,10 @@ oda_sed <- oda_kemi_sed %>%
   transmute(source = "ODA", station = as.character(ObservationsStedNr), date,
             lon = Længde, lat = Bredde, cas = CAS,param = Parameter,
             value_u, under_loq, limit_u,unit  = "ug/kg",
-            organ = NA_character_, biota_type = NA_character_)
+            organ = NA_character_, biota_type = NA_character_,
+            category = "sediment")
 
 
-# BIOTA  (µg/kg vådvægt; fisk + skaldyr; kun VV-rækker)
-oda_bio <- bind_rows(
-  oda_kemi_fisk,oda_kemi_skalddyr) %>%
-  left_join(oda_cas, by = "Parameter") %>%
-  mutate(value_u   = til_ugkg(Resultat, Enhed),
-         limit_u   = til_ugkg(Detektionsgrænse, Enhed),
-         under_loq = Attribut %in% c("<","<="),
-         date = ymd(Dato)) %>%
-  transmute(source = "ODA", station = as.character(ObservationsStedNr), date,unit = Enhed,
-            lon = Længde, lat = Bredde, cas = CAS,param =Parameter,
-            value_u, under_loq, limit_u,
-            organ = Organ, biota_type)
 
 
 # ODA biota (fisk + skaldyr) - erstat filter(str_detect(Enhed,"VV")) med basis:
@@ -298,13 +288,16 @@ oda_bio <- bind_rows(oda_kemi_fisk %>% mutate(biota_type="fish"),
   transmute(source = "ODA", station = as.character(ObservationsStedNr), date,unit = paste0("ug/kg ",basis),
             lon = Længde, lat = Bredde, cas = CAS,param =Parameter,
             value_u, under_loq, limit_u,
-            organ = Organ, biota_type,basis)
+            organ = Organ, biota_type,basis,
+            category = "biota")
 
 
 # SGU biota - tilføj basis = basis_from_unit(ENHET) i mutate og basis i transmute,
 #             og !is.na(basis) i filter (resten som før)
 
+oda_df <- bind_rows(oda_vand,oda_sed,oda_bio)
 
+write.csv(oda_df, file.path(PATHS$input_pressure,"kemisk_forurening", "ODA","ODA_df.csv"), row.names = FALSE)
 ## --- 5. Hurtige tjek -----------------------------------------
 # Parametre uden CAS-match (bør kun være summer/grupper):
 oda_kemi_sed  %>% left_join(oda_cas, by="Parameter") %>% filter(is.na(CAS)) %>% distinct(Parameter) %>% print()

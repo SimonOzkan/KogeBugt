@@ -312,8 +312,12 @@ pts <- DIP_emmeans %>%
   group_by(Station, x, y) %>%
   summarise(lvalue = mean(lvalue, na.rm = TRUE), .groups = "drop")
 
-###### water_vect er lavet eftersom ICES har nogle punkter der ligger lige udenfor selve assessment grid, men er en del af boundary box
+###### Tilføjet extent for at få målinger lige uden for grid med
 # Disse skal derfor tages med og hjælper til at tildele værdier nede i det syd-østlige hjørne af området
+
+
+
+
 water <- st_union(assessment_area_dissolved,baltic_extent) %>%
   st_union(oresund_extent) 
 water_vect <- terra::vect(water)   

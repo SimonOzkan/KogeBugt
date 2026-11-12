@@ -3,31 +3,15 @@
 ## Output: sgu_vand, sgu_sed, sgu_bio  (klar til bind_rows med ODA)
 ## Kræver: til_ugl(), til_ugkg(), add_lonlat(), klass_biota()
 ## ============================================================
+source("scripts/00_setup.R")
+PATHS <- set_project_paths()
+
+
 sgu_dir <- "C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/kemisk_forurening/SGU/Utsök_DV_Miljögifter_2026-11-09 08_50"
 
 vatten_raw    <- read_delim(file.path(sgu_dir,"Vatten.csv"),   delim=";", escape_double=FALSE, trim_ws=TRUE)
 sgu_sed_raw   <- read_delim(file.path(sgu_dir,"Sediment.csv"), delim=";", escape_double=FALSE, trim_ws=TRUE)
 sgu_biota_raw <- read_delim(file.path(sgu_dir,"Biota.csv"),    delim=";", escape_double=FALSE, trim_ws=TRUE)
-
-tst_biota <- sgu_biota_raw %>%
-  left_join(sgu_cas_lookup, by = "PARAMETERNAMN") %>%
-  mutate(
-    value_num = suppressWarnings(as.numeric(gsub("[<>]", "", MATVARDE))),
-    under_loq = grepl("<", MATVARDE),
-    value_u   = conv(value_num, ENHET),
-    limit_u   = conv(coalesce(DETEKTIONSGRANS_LOD, RAPPORTERINGSGRANS_LOQ, value_num), ENHET),
-    date      = as.Date(PROVTAG_DAT),
-    ORGAN,
-    station   = as.character(coalesce(as.character(STATION_ID), as.character(PROVPLATS_ID))),
-    basis = basis_from_unit(ENHET)
-  ) %>%
-  filter(!is.na(value_u), !is.na(CAS)) %>%
-  filter(!is.na(basis)) %>%
-  add_lonlat("NATST_POSITION_E","NATST_POSITION_N", 3006) %>%
-  transmute(source = "SGU", station, date, lon, lat, cas = CAS,param = PARAMETERNAMN,
-            unit = paste0("ug/kg ", basis), ENHET,
-            value_u, under_loq, limit_u, ORGAN,ART)
-  
 
 
 sgu_cas_lookup <- read.csv(file.path(PATHS$input_pressure,"kemisk_forurening","sgu","cas_lookup.csv"))
@@ -60,10 +44,16 @@ sgu_std <- function(df, conv, matrix = c("water","sed","biota")) {
               value_u, under_loq, limit_u, organ, biota_type, basis)   # <- basis med
 }
 
-sgu_vand <- sgu_std(vatten_raw,    til_ugl,  "water")   # µg/L
-sgu_sed  <- sgu_std(sgu_sed_raw,   til_ugkg, "sed")   %>%
-  mutate(cas = stringr::str_extract(cas, "\\d{1,7}-\\d{2}-\\d"))# µg/kg tv
-sgu_bio  <- sgu_std(sgu_biota_raw, til_ugkg, "biota")   # µg/kg vv
+sgu_vand <- sgu_std(vatten_raw,    til_ugl,  "water") %>%
+  mutate(category = "vand")# µg/L
+sgu_sed  <- sgu_std(sgu_sed_raw,   til_ugkg, "sed") %>%
+  mutate(cas = stringr::str_extract(cas, "\\d{1,7}-\\d{2}-\\d"),
+         category = "sediment")# µg/kg tv
+sgu_bio  <- sgu_std(sgu_biota_raw, til_ugkg, "biota") %>%
+  mutate(category = "biota")
 
+sgu_df <- bind_rows(sgu_vand,sgu_sed,sgu_bio)
+
+write.csv(sgu_df, file.path(PATHS$input_pressure,"kemisk_forurening", "SGU","SGU_df.csv"), row.names = FALSE)
 
 
