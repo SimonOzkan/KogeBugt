@@ -1,8 +1,6 @@
 #---------------------- Offshore vindmølleparker - faste konstruktioner -----------------
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
-target_crs <- 25832
-
 
 
 ## ------------------------------------------------------------------
@@ -86,6 +84,8 @@ r_planned    <- make_raster(frac_planned,    grid_raster)
 
 # Gem tif filer
 terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_production_frac.tif"), overwrite = TRUE)
+terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "all_tif/vindmoelleparker_production_frac.tif"), overwrite = TRUE)
+
 terra::writeRaster(r_approved,   file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_approved_frac.tif"),   overwrite = TRUE)
 terra::writeRaster(r_planned,    file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_planned_frac.tif"),    overwrite = TRUE)
 
