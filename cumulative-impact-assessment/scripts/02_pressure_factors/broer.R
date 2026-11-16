@@ -13,7 +13,7 @@ message("Antal broer i undersøgelsesområdet: ", paste(nrow(broer_koge)))
 
 # Læg 50 m buffer omkring hver bro
 broer_koge_buffer <- broer_koge %>%
-  st_buffer(dist = 50) %>%
+  st_buffer(dist = 10) %>%  # gennemsnitlig bro-bredde er ca 10 meter
   st_union() %>%
   st_as_sf()
 
@@ -56,6 +56,12 @@ bro_buffer_fill <- fill_na(bro_buffer_rast, grid_raster, w = 3 ) # sikre at alle
 terra::writeRaster(
   bro_buffer_fill,
   filename = file.path(PATHS$output_pressure_tif,"anlaeg", "broer_buffer.tif"),
+  overwrite = TRUE
+)
+
+terra::writeRaster(
+  bro_buffer_fill,
+  filename = file.path(PATHS$output_pressure_tif,"all_tif", "broer_buffer.tif"), 
   overwrite = TRUE
 )
 

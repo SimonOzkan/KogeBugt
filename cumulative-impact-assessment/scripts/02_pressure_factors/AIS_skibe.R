@@ -51,7 +51,7 @@ ship_type_folders <- list(
 # Funktionelle grupper
 functional_groups <- list(
   Industri_andre = c("cargo", "tanker", "passenger", "highspeed", "dredging","military","andre","service","tug","ukendt","sailing", "pleasure"),
-  #Rekreativ    = c("sailing", "pleasure"),
+  Rekreativ    = c("sailing", "pleasure"),
   Fiskeri    = c("fishing")
   #Andre = c("military","andre","service","tug","ukendt")
 )
@@ -91,6 +91,7 @@ for (type_name in names(ship_type_folders)) {
 }
 ship_type_rasters$fishing
 
+
 ## ------------------------------------------------------------------
 ## Kombiner til funktionelle grupper
 ## ------------------------------------------------------------------
@@ -115,7 +116,8 @@ for (group_name in names(functional_groups)) {
   group_rasters[[group_name]] <- group_sum
 }
 
-group_rasters$Industri_andre
+group_rasters$Rekreativ
+
 ## ------------------------------------------------------------------
 ## Log-normaliser hver gruppe til 0-1
 ## ------------------------------------------------------------------
@@ -135,7 +137,7 @@ normalize_log_fuldt <- function(r_full, grid_raster) {
 }
 
 group_rasters_norm <- lapply(group_rasters, normalize_log_fuldt, grid_raster)
-plot(group_rasters_norm$Industri_andre)
+plot(group_rasters_norm$Rekreativ)
 
 ## ------------------------------------------------------------------
 ## Gem rastere

@@ -12,8 +12,8 @@ PATHS <- set_project_paths()
 ## Parametre 
 ## ------------------------------------------------------------------
 # Bufferradius i meter. 
-buffer_industri  <- 100
-buffer_lystbaad  <- 100
+buffer_industri  <- 250
+buffer_lystbaad  <- 250
 
 
 ## ------------------------------------------------------------------
@@ -28,6 +28,12 @@ havne_good_traffic <- st_read(file.path(PATHS$input_pressure,
   mutate(PORT_ID = as.character(PORT_ID))   # sikr fælles nøgletype til join
 
 havne_koge <- st_intersection(havne_good_traffic, assessment_area_dissolved)
+
+
+###### Havne fra harbour maps (hentet manuelt for hver havn)
+lystbaad <- read_csv(file.path(PATHS$input_pressure,
+                   "havne",
+                   "havne_oresund_koge_bugt.csv"))
 
 
 ## ------------------------------------------------------------------
@@ -79,20 +85,17 @@ message("Normaliseringsanker (log-cargo max, hele datasættet): ", round(max_ful
 
 # Lystbådshavne har ingen import/eksport -> mean_cargo bliver NaN (is.na() fanger NaN)
 havne_industri_df <- cargo_per_port %>% filter(!is.na(mean_cargo))
-havne_lystbaad_df <- cargo_per_port %>% filter(is.na(mean_cargo))
+havne_lystbaad_df <- lystbaad
+
 
 message("Industrihavne: ", nrow(havne_industri_df),
         " | Lystbådshavne: ", nrow(havne_lystbaad_df))
 
 
 # Rejoin punkt-geometri 
-havne_geom <- havne_koge %>% 
-  dplyr::select(PORT_ID)
 
 industri_pts <- havne_geom %>% 
   inner_join(havne_industri_df, by = "PORT_ID")
-lystbaad_pts <- havne_geom %>% 
-  inner_join(havne_lystbaad_df, by = "PORT_ID")
 
 
 ## ==================================================================
@@ -144,7 +147,9 @@ terra::writeRaster(industri_norm,
 ## ==================================================================
 # Samme fremgangsmåde som fyrtårne/renseanlæg.
 
-lyst_buffer <- lystbaad_pts %>%
+lyst_buffer <- lystbaad %>%
+  st_as_sf(.,coords = c("x" = "lon","y"="lat"), crs = 4326) %>%
+  st_transform(crs = target_crs) %>%
   st_buffer(dist = buffer_lystbaad) %>%
   st_as_sf()
 
@@ -212,6 +217,10 @@ gem_trim(map_havne_industri,
          file.path(PATHS$output_pressure_png, "anlaeg", "havne_industri_frak.png"),
          dpi = 360, width_cm = 18)
 
+
+lystbaad_pts <- lystbaad %>%
+  st_as_sf(.,coords = c("x" = "lon","y"="lat"), crs = 4326) %>%
+  st_transform(crs = target_crs) 
 # Lystbåd (buffer-fraktion)
 map_havne_lyst <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) +                     # baggrund: relief

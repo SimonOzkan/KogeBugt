@@ -157,6 +157,8 @@ terra::values(pred_r_chase) <- pred                       # pred er i celle-ræk
 pred_r_chase <- terra::clamp(pred_r_chase, 0, 1, values = TRUE)   # power=1 kan overshoote
 pred_r_chase <- terra::mask(pred_r_chase, grid_raster)    # klip til assessment-området
 names(pred_r_chase) <- "value"
+
+pred_r_chase <- 1-pred_r_chase$value
 ## usikkerhedsraster (valgfrit, samme behandling)
 pse_r_chase <- grid_raster
 terra::values(pse_r_chase) <- pse
@@ -198,7 +200,34 @@ kernel_stat_chase <- ggplot() +
   geom_point(data = pts, aes(x, y, fill = value),              # stationer som cirkler
              shape = 21, size = 3, stroke = 0.3, colour = "grey20") +
   scale_fill_viridis_c(limits = c(0, 1), name = "EQR", na.value = NA) +  # SAMME skala for begge
-  labs(title = "Marin chase (kernel) og modellerede og målte 2014–2024") +
+  labs(title = "Marin chase (kernel) og målte 2010–2024") +
+  theme_minimal() + boundary
+
+kernel_stat_chase
+
+
+
+chase_points_sf <- df_CHASE %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326, remove = FALSE) %>%
+  st_transform(target_crs) %>%
+  rename(value = EQR_cat) %>%
+  mutate(n_obs = case_when(n_subs == 1 ~ "1",
+                           n_subs > 1 & n_subs <= 10 ~ "2-10",
+                           n_subs > 10 ~ ">10"),
+         n_obs = factor(n_obs, levels = c("1", "2-10", ">10"))) %>%
+  st_filter(water)
+
+kernel_stat_chase <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
+  geom_sf(data = conc_as_sf_chase, aes(fill = value), color = NA) +
+  geom_sf(data = chase_points_sf, aes(fill = value, color = n_obs),
+          shape = 21, size = 8) +
+  scale_fill_viridis_c(name = "EQR") +    
+  scale_color_manual(name = "n_obs",
+                     values = c("1" = "red",
+                                "2-10"       = "purple",
+                                ">10" = "green")) +
+  labs(title = "Marin CHASE (kernel) og målt gennemsnit fra 2010–2024") +
   theme_minimal() + boundary
 
 kernel_stat_chase
