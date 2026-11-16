@@ -18,9 +18,8 @@ request_bypass <- paste0(
 
 bypass <- st_read(request_bypass) %>%
   st_transform(crs = target_crs) %>%
-  st_make_valid()
-
-
+  st_make_valid() %>%
+  dplyr::select(OBJECTID,Maengde, geometry)
 
 ## ------------------------------------------------------------------
 ## Intersect med undersøgelsesområde
@@ -72,6 +71,13 @@ plot(r_bypass_fill)
 terra::writeRaster(
   r_bypass,
   file.path(PATHS$output_pressure_tif, "anlaeg","bypass.tif"),
+  overwrite = TRUE
+)
+
+
+terra::writeRaster(
+  r_bypass,
+  file.path(PATHS$output_pressure_tif, "all_tif","bypass.tif"),
   overwrite = TRUE
 )
 

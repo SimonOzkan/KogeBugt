@@ -8,16 +8,28 @@ PATHS <- set_project_paths()
 ## 1 Indlæs klapningsdata (se data folder / metadata_log)
 ## ------------------------------------------------------------------
 
-klapning <- st_read(file.path(PATHS$input_pressure, "\\klapning\\EMODnet_HA_DredgeSpoilDumping_20251105\\EMODnet_HA_DredgeSpoilDumping_pg_Locations_20251105.shp")) %>%
-  st_transform(., crs = target_crs) %>%
-  st_make_valid()
-
-# TODO: Forhør med Ciaran om der kun tages højde for område og ikke hvad/hvor meget der dumpes.
-# Hvis ikke, anvend EMODnet-laget i stedet (samme geografiske data, men simplificeret
-# attributinformation), så dubletter mellem de to kilder undgås. Indlæses her til senere brug,
-# men indgår ikke i den aktuelle beregning.
+####
 klapning_HELCOM <- st_read(file.path(PATHS$input_pressure, "\\klapning\\_ags_depositing_poly_36_2_2024\\depositing_poly_36_2_2024.shp")) %>%
   st_transform(., crs = target_crs)
+
+
+# Arealinformation
+
+# ── Hent Holmene fra WFS ───────────────────────────────────────────────────
+
+
+request <- paste0(
+  "https://wfs2-miljoegis.mim.dk/vp3_2endelig2025/ows",
+  "?service=WFS",
+  "&version=2.0.0",
+  "&request=GetFeature",
+  "&typeNames=vp3_2endelig2025:vp3_2e2025_klappladser",
+  "&outputFormat=application/json"
+)
+
+klapning_arealinfo <- st_read(request) %>%
+  st_transform(crs = target_crs)
+
 
 
 ## ------------------------------------------------------------------

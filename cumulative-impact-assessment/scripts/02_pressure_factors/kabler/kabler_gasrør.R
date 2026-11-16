@@ -1,8 +1,6 @@
 #----------------------------------- Kabler og gasrør -----------------------#
 source("scripts/00_setup.R")
-library(tidyterra)
-
-
+PATHS <- set_project_paths()
 ## --- WFS-kilder ---
 wfs_url_anlaeg_linje  <- "https://gisportal.mst.dk/server/services/ekstern/KDI_anlaeg_paa_soeterritoriet/MapServer/WFSServer"
 wfs_url_el_kabel      <- "https://agis.energinet.dk/server/services/INSPIRE/XP_el_Inspir/MapServer/WFSServer"
@@ -28,20 +26,36 @@ pipelines_emodnet <- st_read(paste0(wfs_url_olie_gas_pipe,
   st_transform(target_crs)
 
 ## --- 2. Klip til undersøgelsesområdet ---
-klip <- function(x, kilde) x %>% st_make_valid() %>%
+kabler_koge_mst <-   kabler_mst %>%
   st_intersection(assessment_area_dissolved) %>%
-  transmute(kilde = kilde)
+  transmute(kilde = "MST")
+  
 
-kabler_koge <- bind_rows(klip(kabler_mst, "MST_anlaeg"),
-                         klip(kabler_energinet, "Energinet"))
-gasrør_koge <- klip(pipelines_emodnet, "EMODnet_pipeline")
+# ### Kontek elektrode anglæg anvendes om preslag i kemisk forurening
+# kontek_elektrode <- kabler_energinet %>%
+#   filter(Spaending == "Elektrode")
+# st_write(kontek_elektrode,file.path(PATHS$input_pressure, "kemisk_forurening","kontek_elektrode","kontek_elektrode.shp"), append = FALSE)  
 
-## --- 3. Funktion: linjer -> korridor -> arealfraktion pr. celle -> raster ---
-# buffer_width er et PLACEHOLDER (25 m til hver side = 50 m korridor).
+
+kabler_koge_energi <-   kabler_energinet %>%
+  filter(!Spaending == "Elektrode") %>%
+  st_intersection(assessment_area_dissolved) %>%
+  transmute(kilde = "energinet") 
+  
+## Samlet kabler
+kabler_koge <- bind_rows(kabler_koge_mst,kabler_koge_energi)
+
+
+### gasrør
+gasrør_koge <- pipelines_emodnet %>%
+  st_intersection(assessment_area_dissolved) 
+
+plot(st_geometry(gasrør_koge))
+## --- 3. Funktion: linjer -> korridor -> arealfraktion pr. celle -> raster ---.
 # Erstat med officiel kabel-/rørkorridorbredde for danske farvande, hvis den findes.
-buffer_width <- 25
+buffer_width <- 5 # Sat til 5 meter, hvilket formentlig fortsat er lidt større end rigtigt. Der kommer effekt-distance på
 
-korridor_frac <- function(linjer, grid_sf, grid_raster, buffer_width = 25) {
+korridor_frac <- function(linjer, grid_sf, grid_raster, buffer_width = 5) {
   korridor <- linjer %>%
     st_buffer(buffer_width) %>%
     st_union() %>% st_make_valid() %>% st_as_sf()
@@ -84,6 +98,13 @@ terra::writeRaster(kabler$raster,
                    file.path(PATHS$output_pressure_tif,"kabler","kabler.tif"), overwrite = TRUE)
 terra::writeRaster(gasrør$raster,
                    file.path(PATHS$output_pressure_tif,"kabler" ,"gasrør.tif"), overwrite = TRUE)
+
+#### All tif samlet ######
+terra::writeRaster(kabler$raster,
+                   file.path(PATHS$output_pressure_tif,"all_tif","kabler.tif"), overwrite = TRUE)
+terra::writeRaster(gasrør$raster,
+                   file.path(PATHS$output_pressure_tif,"all_tif" ,"gasrør.tif"), overwrite = TRUE)
+
 
 
 kabler_sf <- kabler$grid_frac %>%
