@@ -118,7 +118,8 @@ boundary_syd  <- st_intersection(maritime_boundaries, syd_koge)
 boundary_nord <- st_intersection(maritime_boundaries, nord_koge)
 
 # ── 2. Split områderne langs de maritime grænser ──────────────────────────────
-syd_koge_split  <- st_difference(syd_koge,  st_union(boundary_syd))
+syd_koge_split  <- st_difference(syd_koge,  st_union(boundary_syd)) %>%
+  st_union(praestoe)
 nord_koge_split <- st_difference(nord_koge, st_union(boundary_nord))
 
 # ── 3. Udtræk polygoner og tildel id ──────────────────────────────────────────
@@ -136,7 +137,8 @@ ggplot() + geom_sf(data = nord_koge_split, aes(fill = as.factor(id))) + theme_mi
 # NB: Tjek id-værdierne fra plot ovenfor og ret filtrene hvis nødvendigt
 syd_koge_dk <- syd_koge_split %>%
   filter(id == 1) %>%
-  mutate(id = 3, area = "syd køge DK")
+  mutate(id = 3, area = "syd køge DK") %>%
+  st_union(praestoe)
 
 nord_koge_dk <- syd_koge_split %>%                  # Læses fra ekstern fil nedenfor
   filter(id == 23) %>%
@@ -151,7 +153,6 @@ omrade_comb_split <- bind_rows(
   swe_koge_bugt,
   nord_dk_koge,
   koge_bugt,
-  praestoe          # <- Præstø med
 ) %>%
   mutate(id = as.factor(id)) %>%
   dplyr::select(id, area, geometry)
