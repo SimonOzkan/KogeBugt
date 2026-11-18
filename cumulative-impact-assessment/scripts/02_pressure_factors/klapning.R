@@ -16,8 +16,7 @@ klapning_HELCOM <- st_read(file.path(PATHS$input_pressure, "\\klapning\\_ags_dep
 Klapning <- read_excel(file.path(PATHS$input_pressure,"klapning/Klapning.xlsx"))
 
 Klapning_data <- read_excel(file.path(PATHS$input_pressure,"klapning/Klapning_data_GIS.xlsx")) %>%
-  rename("klapplads" = "Klapplads_",
-         "id_klap" = "id") 
+  rename("id_klap" = "id") 
 
 # Arealinformation
 
