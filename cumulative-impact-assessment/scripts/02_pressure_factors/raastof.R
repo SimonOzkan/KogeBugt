@@ -25,124 +25,114 @@ udviklingszone_raastof <- havplan %>%
   st_make_valid()
 
 # ── 2. Hent aktive og expired råstofsområder fra EMODnet ─────────────────────
+
+## Geometri over områder med råstofsindvending
 raastof_emodnet <- st_read(file.path(PATHS$input_pressure, "raastof/EMODnet_HA_AggregatesExtraction_20250902/EMODnet_HA_Aggregates_pg_20250902.shp")) %>%
   st_transform(crs = target_crs) %>%
+  st_make_valid() 
+  #dplyr::select(CODE, NAME, ID,STATUS,Year_start,Year_end,SeaBasin,geometry)
+
+
+### kildeinformation med mængde der indvendes
+point_amount <- read_excel("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/raastof/EMODnet_HA_AggregatesExtraction_20250902/EMODnet_HA_AggregatesExtraction_20250902.xls", 
+           sheet = "pt_Data_20250902") 
+  #dplyr::select(ID, A_ACT_km2, YEAR,PAMOUNT_m3,RAMOUNT_m3,RAMOUNT_m3,EAMOUNT_t)
+
+
+point_amount %>% filter(grepl("^A-DK|^A-SE", ID)) %>%
+  summarise(min = min(YEAR), max = max(YEAR), n = n())
+point_amount %>% filter(grepl("^A-DK|^A-SE", ID)) %>% count(YEAR)
+
+pg_amount <- read_excel("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/raastof/EMODnet_HA_AggregatesExtraction_20250902/EMODnet_HA_AggregatesExtraction_20250902.xls", 
+                       sheet = "pg_Data_20250902")
+
+
+periode_r <- 2018:2025                                   # <- TJEK at DK har data her!
+
+
+amt <- point_amount %>%
+  filter(YEAR %in% periode_r,
+         grepl("^A-DK|^A-SE", ID)) %>%
+  mutate(CODE = str_extract(NOTES, "(?<=Area number:\\s)\\S+") %>% str_trim()) %>%
+  group_by(CODE) %>%
+  summarise(mean_m3_yr = mean(EAMOUNT_m3, na.rm = TRUE), .groups = "drop")
+
+raastof_all <- raastof_emodnet %>%
+  filter(Country %in% c("Denmark","Sweden")) %>%
+  st_make_valid() %>%
+  left_join(amt, by = "CODE") %>%
+  filter(!is.na(mean_m3_yr),
+         !Year_end <= 2018) %>%
+  group_by(CODE) %>%                                        # ÉN geometri pr. indvindingsområde
+  summarise( mean_m3_yr = first(mean_m3_yr), .groups = "drop") %>%   # geometri unioner automatisk
+  st_make_valid() %>%
+  mutate(area_r        = as.numeric(st_area(.)),            # areal af den SAMLEDE polygon
+         m3_per_km2    = (mean_m3_yr / area_r) * 1e6,
+         m3_per_km2_lg = log10(m3_per_km2 + 1))
+
+
+max_r     <- max(raastof_all$m3_per_km2,    na.rm = TRUE)
+max_r_log <- max(raastof_all$m3_per_km2_lg, na.rm = TRUE)
+min_r     <- min(raastof_all$m3_per_km2,    na.rm = TRUE)
+min_r_log <- min(raastof_all$m3_per_km2_lg, na.rm = TRUE)
+
+area_grid <- as.numeric(st_area(grid_sf))[1]
+
+raastof_cells <- st_intersection(raastof_all, grid_sf) %>%
+  mutate(piece_area = as.numeric(st_area(.))) %>%
+  st_drop_geometry() %>%
+  group_by(id) %>%
+  summarise(value = sum(m3_per_km2 * piece_area) / area_grid, .groups = "drop") %>%  # lineær celle-intensitet
+  mutate(value_lg      = log10(value + 1),                # log AF celle-intensiteten
+         value_norm    = value    / max_r,                # min=0 -> = (value-0)/(max-0)
+         value_norm_lg = value_lg / max_r_log)            # max_r_log = log10(max_r + 1)
+
+## 2. Fordel til grid, 0 hvor ingen indvinding ────────────────────────────────
+raastof_gridded <- grid_sf %>%
+  left_join(raastof_cells, by = "id") %>%
+  mutate(value_norm    = tidyr::replace_na(value_norm, 0),
+         value_norm_lg = tidyr::replace_na(value_norm_lg, 0)) %>%
   st_make_valid()
 
-raastof_emodnet_koge <- st_intersection(raastof_emodnet, assessment_area_dissolved)
+## 3. Konverter til raster og gem ─────────────────────────────────────────────
+raastof_rast <- terra::rasterize(
+  terra::vect(raastof_gridded), grid_raster,
+  field = "value_norm", fun = "max", background = NA)
 
-raastof_aktiv_koge <- raastof_emodnet_koge %>%
-  filter(STATUS == "Active") %>%
-  st_union() %>%
-  st_make_valid()
+raastof_rast_lg_norm <- terra::rasterize(
+  terra::vect(raastof_gridded), grid_raster,
+  field = "value_norm_lg", fun = "max", background = NA)
 
-raastof_expired_koge <- raastof_emodnet_koge %>%
-  filter(STATUS != "Active") %>%
-  st_union() %>%
-  st_make_valid()
+par(mfrow = c(1,2))
+plot(raastof_rast)
+plot(raastof_rast_lg_norm)
 
-# ── 3. Funktion til fraktion-beregning ───────────────────────────────────────
-calc_frac <- function(lag_sf, grid_sf) {
-  
-  intersection <- st_intersection(grid_sf, lag_sf) %>%
-    mutate(area_intersect = as.numeric(st_area(.))) %>%
-    st_drop_geometry() %>%
-    group_by(id) %>%
-    summarise(area_intersect = sum(area_intersect, na.rm = TRUE), .groups = "drop")
-  
-  frac <- grid_sf %>%
-    left_join(intersection, by = "id") %>%
-    mutate(value = tidyr::replace_na(area_intersect,0),
-           value = value / area_grid
-    )
-  return(frac)
-}
+terra::writeRaster(raastof_rast,
+                   file.path(PATHS$output_pressure_tif, "restriktive_omraader", "raastof_norm.tif"), overwrite = TRUE)
 
-# ── 4. Funktion til rasterisering ─────────────────────────────────────────────
-make_raster <- function(grid_frac, grid_raster) {
+terra::writeRaster(raastof_rast_lg_norm,
+                   file.path(PATHS$output_pressure_tif, "restriktive_omraader", "raastof_log_norm.tif"), overwrite = TRUE)
 
-  
-  r <- terra::rasterize(
-    terra::vect(grid_frac),
-    grid_raster,
-    field      = "value",
-    fun        = "max",
-    background = NA
-  )
-  return(r)
-}
+## 4.1  Plotting for bilag - ikke log transformeret ──────────────────────────
+raastof_sf <- raastof_rast %>%
+  terra::as.polygons(dissolve = FALSE) %>% st_as_sf() %>% st_make_valid()
 
-# ── 5. Beregn fraktioner ──────────────────────────────────────────────────────
-message("Beregner: Udviklingszone råstof")
-frac_udviklingszone <- calc_frac(udviklingszone_raastof, grid_sf)
+map_raastof_norm <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +
+  geom_sf(data = raastof_sf, aes(fill = value_norm), color = NA) +
+  color_viridis + boundary + theme_minimal() + my_theme + north_arrow + scale_bar
+map_raastof_norm
+gem_trim(map_raastof_norm,
+         file.path(PATHS$output_pressure_png, "restriktive_omraader", "raastof_norm.png"), dpi = 360, width_cm = 18)
 
-message("Beregner: Aktive råstofsområder")
-frac_aktiv <- calc_frac(raastof_aktiv_koge, grid_sf)
+## 4.2  Plotting for bilag - log transformeret ───────────────────────────────
+raastof_sf_lg <- raastof_rast_lg_norm %>%
+  terra::as.polygons(dissolve = FALSE) %>% st_as_sf() %>% st_make_valid()
 
-message("Beregner: Expired råstofsområder")
-frac_expired <- calc_frac(raastof_expired_koge, grid_sf)
-
-# ── 6. Lav rasters ────────────────────────────────────────────────────────────
-r_udviklingszone <- make_raster(frac_udviklingszone, grid_raster)
-r_aktiv          <- make_raster(frac_aktiv,grid_raster)
-r_expired        <- make_raster(frac_expired,grid_raster)
-
-# ── 7. Gem tif filer ──────────────────────────────────────────────────────────
-
-terra::writeRaster(r_udviklingszone, file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_udviklingszone_frac.tif"), overwrite = TRUE)
-terra::writeRaster(r_aktiv,          file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_aktiv_frac.tif"),          overwrite = TRUE)
-terra::writeRaster(r_expired,         file.path(PATHS$output_pressure_tif,"fysisk_forstyrrelse", "raastof_expired_frac.tif"),        overwrite = TRUE)
-
-# ── 8. Lav sf objekter til plot ───────────────────────────────────────────────
-to_sf <- function(r, value_col) {
-  r %>%
-    terra::as.polygons(dissolve = FALSE) %>%
-    st_as_sf() %>%
-    st_make_valid()
-  }
-
-udviklingszone_sf <- to_sf(r_udviklingszone)
-aktiv_sf          <- to_sf(r_aktiv)
-expired_sf        <- to_sf(r_expired)
-
-# ── 10. Plot-funktion ─────────────────────────────────────────────────────────
-plot_raastof <- function(sf_data) {
-  
-  ggplot() +
-    geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
-    geom_sf(data = sf_data, aes(fill = value), color = NA) +
-    color_viridis+
-    boundary+
-    theme_minimal()+
-    my_theme+
-    north_arrow+
-    scale_bar
-}
-
-# ── 11. Lav plots ─────────────────────────────────────────────────────────────
-map_udviklingszone <- plot_raastof(udviklingszone_sf)
-map_aktiv          <- plot_raastof(aktiv_sf)
-map_expired        <- plot_raastof(expired_sf)
-
-map_udviklingszone
-map_aktiv
-map_expired
-
-
-gem_trim(map_udviklingszone,
-         file.path(PATHS$output_pressure_png, "fysisk_forstyrrelse","map_udviklingszone.png"),
-         dpi = 360, width_cm = 18)
-
-gem_trim(map_aktiv,
-         file.path(PATHS$output_pressure_png, "fysisk_forstyrrelse","map_aktiv.png"),
-         dpi = 360, width_cm = 18)
-gem_trim(map_expired,
-         file.path(PATHS$output_pressure_png, "fysisk_forstyrrelse","map_expired.png"),
-         dpi = 360, width_cm = 18)
-
-# ── 12. Gem plots ─────────────────────────────────────────────────────────────
-ggsave(plot = map_udviklingszone, filename = file.path(PATHS$output_pressure_png,"fysisk_forstyrrelse", "\\raastof_udviklingszone.png"), bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_aktiv,          filename = file.path(PATHS$output_pressure_png,"fysisk_forstyrrelse", "\\raastof_aktiv.png"),          bg = NULL, height = 18, width = 18, dpi = 300)
-ggsave(plot = map_expired,         filename = file.path(PATHS$output_pressure_png,"fysisk_forstyrrelse", "\\raastof_expired.png"),        bg = NULL, height = 18, width = 18, dpi = 300)
-
-
+map_raastof_lg <- ggplot() +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) +
+  geom_sf(data = raastof_sf_lg, aes(fill = value_norm_lg), color = NA) +
+  color_viridis + boundary + theme_minimal() + my_theme + north_arrow + scale_bar
+map_raastof_lg
+gem_trim(map_raastof_lg,
+         file.path(PATHS$output_pressure_png, "restriktive_omraader", "raastof_log_norm.png"), dpi = 360, width_cm = 18)
