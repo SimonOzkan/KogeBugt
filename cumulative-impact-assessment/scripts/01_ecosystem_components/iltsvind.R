@@ -46,6 +46,8 @@ bb_baltic   <- sf::st_bbox(terra::project(baltic_mask, "EPSG:4326"))   # -> down
 # }
 
 # Dybde for hele Østersøen, der anvendes til maskering
+
+
 depth_baltic <- terra::rast(file.path(PATHS$input_phys_chem_geo, "\\_ags_depth_250m\\depth_250m.tif")) 
 
 #
@@ -115,21 +117,21 @@ names(iltsvind) <- "value"
 
 plot(iltsvind)
 
+
+
 terra::writeRaster(iltsvind,
                    file.path(PATHS$output_ecosystem_tif,"iltsvind", "iltsvind.tif"), overwrite = TRUE)
 # B) Økosystem retning (flest dage = 0, færrest 1)
 
-iltsvind_B <- terra::clamp(1- (dage_bs_koge - Dmin) / (Dmax - Dmin), 0, 1)
+iltsvind_B <- terra::clamp(1- (dage_bs_koge - Dmin) / (Dmax - Dmin), 0, 1) # komplimentær værdien
 plot(iltsvind_B)
 
 names(iltsvind_B) <- "value"
 
-
-
 terra::writeRaster(iltsvind_B,
-                   file.path(PATHS$output_ecosystem_tif,"iltsvind", "iltsvind.tif"), overwrite = TRUE)
+                   file.path(PATHS$output_ecosystem_tif,"iltsvind", "iltsvind_b.tif"), overwrite = TRUE)
 
-iltsvind_sf <- iltsvind_B %>%
+iltsvind_sf <- iltsvind %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid()
