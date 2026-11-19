@@ -65,7 +65,7 @@ near_level <- terra::rasterize(terra::voronoi(src_pts, bnd = helcom_v), r0,
 
 ## ---- 4. Dybde-afhængigt transmissionstab (land fjernet, Baltic-normaliseret) -
 bathy <- terra::ifel(bathy >= 0, NA, -bathy)              # kun hav; dybde positiv
-depth     <- terra::project(bathy_sea, r0, method = "bilinear") %>%
+depth <- terra::project(bathy, r0, method = "bilinear") %>%
   terra::mask(helcom_v)
 plot(depth)
 dmin <- terra::global(depth, "min", na.rm = TRUE)[[1]]

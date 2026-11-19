@@ -4,35 +4,35 @@ PATHS <- set_project_paths()
 # output_csv_folder   <- "C:/Users/EMD/OneDrive - NIVA/TIKTA/NOISE trawling/"
 # output_plots_folder <- "C:/Users/EMD/OneDrive - NIVA/TIKTA/NOISE trawling/"
 
-HELCOM_grid <- st_read(file.path(PATHS$input_assessment_area,"HELCOM","_ags_HELCOM_1x1km_Baltic_Sea_grid","HELCOM_1x1km_Baltic_Sea_grid.shp")) %>%
-  st_transform(,crs = target_crs) %>%
-  st_union()
-
-
-
-
-ices_SAR <- read_delim("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/lyd_energi/rumbling/EMODnet_HA_Fisheries_FishingIntensity_20260424/ICES_FO_VMS_SAR_20260424.csv", 
-                          delim = ";", escape_double = FALSE, trim_ws = TRUE)
-
-ices_effort <- read_delim("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/lyd_energi/rumbling/EMODnet_HA_Fisheries_FishingIntensity_20260424/ICES_FO_VMS_Effort_20260424.csv", 
-                       delim = ";", escape_double = FALSE, trim_ws = TRUE)
-
-sar   <- st_read(file.path(PATHS$input_pressure,"lyd_energi","rumbling","EMODnet_HA_Fisheries_FishingIntensity_20260424","EMODnet_HA_Fisheries_Csquares_20260424.shp")) %>%
-  st_transform(,crs = target_crs) %>%
-  left_join(ices_SAR)
-sar_baltic <- st_intersection(sar, HELCOM_grid) 
-
-bathy <- rast(file.path(PATHS$input_pressure,"lyd_energi","rumbling","gebco_2026_n70.0_s26.0_w-18.0_e40.0_geotiff.tif"))
-bathy <- terra::project(bathy, terra::vect(HELCOM_grid), method = "bilinear") %>%
-  terra::mask(terra::vect(HELCOM_grid))
-
-
-
-
-
-bbox <- st_read(file.path(PATHS$input_assessment_area, "bbox_omraade","koge_bugt_bbox.shp"))
-
-bbox_v <- bbox %>% st_transform(crs(sar)) %>% vect()
+# HELCOM_grid <- st_read(file.path(PATHS$input_assessment_area,"HELCOM","_ags_HELCOM_1x1km_Baltic_Sea_grid","HELCOM_1x1km_Baltic_Sea_grid.shp")) %>%
+#   st_transform(,crs = target_crs) %>%
+#   st_union()
+# 
+# 
+# 
+# 
+# ices_SAR <- read_delim("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/lyd_energi/rumbling/EMODnet_HA_Fisheries_FishingIntensity_20260424/ICES_FO_VMS_SAR_20260424.csv", 
+#                           delim = ";", escape_double = FALSE, trim_ws = TRUE)
+# 
+# ices_effort <- read_delim("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/lyd_energi/rumbling/EMODnet_HA_Fisheries_FishingIntensity_20260424/ICES_FO_VMS_Effort_20260424.csv", 
+#                        delim = ";", escape_double = FALSE, trim_ws = TRUE)
+# 
+# sar   <- st_read(file.path(PATHS$input_pressure,"lyd_energi","rumbling","EMODnet_HA_Fisheries_FishingIntensity_20260424","EMODnet_HA_Fisheries_Csquares_20260424.shp")) %>%
+#   st_transform(,crs = target_crs) %>%
+#   left_join(ices_SAR)
+# sar_baltic <- st_intersection(sar, HELCOM_grid) 
+# 
+# bathy <- rast(file.path(PATHS$input_pressure,"lyd_energi","rumbling","gebco_2026_n70.0_s26.0_w-18.0_e40.0_geotiff.tif"))
+# bathy <- terra::project(bathy, terra::vect(HELCOM_grid), method = "bilinear") %>%
+#   terra::mask(terra::vect(HELCOM_grid))
+# 
+# 
+# 
+# 
+# 
+# bbox <- st_read(file.path(PATHS$input_assessment_area, "bbox_omraade","koge_bugt_bbox.shp"))
+# 
+# bbox_v <- bbox %>% st_transform(crs(sar)) %>% vect()
 
 # base_raster         <- rast("C:/Users/EMD/OneDrive - NIVA/TIKTA/study area/europe10km.tif")
 # output_csv_folder   <- "C:/Users/EMD/OneDrive - NIVA/TIKTA/NOISE trawling/"
@@ -40,9 +40,6 @@ bbox_v <- bbox %>% st_transform(crs(sar)) %>% vect()
 
 sar   <- terra::rast(file.path(PATHS$input_pressure,"lyd_energi","rumbling","demersal_mobile_laea_10km.tif"))
 sar   <- project(sar,paste0("EPSG:",target_crs))
-sar_koge <- terra::crop(sar, bbox_v)
-
-plot(sar_koge)
 
 bathy <- rast(file.path(PATHS$input_pressure,"lyd_energi","rumbling","gebco_2026_n70.0_s26.0_w-18.0_e40.0_geotiff.tif"))
 bathy <- project(bathy, sar, method = "bilinear")
