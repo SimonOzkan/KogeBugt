@@ -129,7 +129,7 @@ plot(iltsvind_B)
 names(iltsvind_B) <- "value"
 
 terra::writeRaster(iltsvind_B,
-                   file.path(PATHS$output_ecosystem_tif,"iltsvind", "iltsvind_b.tif"), overwrite = TRUE)
+                   file.path(PATHS$output_ecosystem_tif,"pelagisk_hab", "iltsvind_b.tif"), overwrite = TRUE)
 
 iltsvind_sf <- iltsvind %>%
   terra::as.polygons(dissolve = FALSE) %>%
@@ -151,7 +151,7 @@ map_iltsvind <- ggplot() +
 map_iltsvind
 
 ggsave(plot = map_iltsvind,
-       filename = file.path(PATHS$output_ecosystem_png,"iltsvind","iltsvind.png"),
+       filename = file.path(PATHS$output_ecosystem_png,"pelagisk_hab","iltsvind.png"),
        bg = NULL,
        height = 18,
        width = 18,

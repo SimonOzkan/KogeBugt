@@ -30,7 +30,7 @@ klfa_norm_fill_na <- fill_na(klfa_norm, grid_raster, w = 3)
 
 terra::writeRaster(
   klfa_norm_fill_na,
-  filename = file.path(PATHS$output_ecosystem_tif, "/klfa_log_norm.tif"),
+  filename = file.path(PATHS$output_ecosystem_tif,"pelagisk_hab" ,"klfa_log_norm.tif"),
   overwrite = TRUE
 )
 
@@ -62,7 +62,7 @@ map_klfa
 
 
 ggsave(plot = map_klfa,
-       filename = file.path(PATHS$output_ecosystem_png,"klfa.png"),
+       filename = file.path(PATHS$output_ecosystem_png,"pelagisk_hab","klfa.png"),
        bg = NULL,
        height = 18,
        width = 18,
