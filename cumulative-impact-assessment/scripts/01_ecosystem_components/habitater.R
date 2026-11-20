@@ -124,50 +124,13 @@ koge_habs_gridded <- bind_rows(hab_intersection_list)
 
 koge_habs_A <- koge_habs_gridded %>%
   mutate(intersect_area = as.numeric(st_area(geom))) %>%
-  st_drop_geometry()
+  st_drop_geometry() %>%
+  group_by(id,habitat) %>%
+  summarise(a_habs_sum = sum(intersect_area, na.rm =TRUE), .groups = "drop") %>%
+  mutate(frac = a_habs_sum / 62500) # area of grid cell
 
 
-
-## --- Enkelte celler intersecter ikke med EUseaMap grundet opløsning, de tildeles nærmeste substrat type ---
-
-# dominant habitat pr. celle med overlap (til nabo-opslag)
-dom <- koge_habs_A %>%
-  dplyr::group_by(id) %>%
-  dplyr::slice_max(intersect_area, n = 1, with_ties = FALSE) %>%
-  dplyr::ungroup()
-
-known <- grid_sf %>% dplyr::inner_join(dplyr::select(dom, id, All2019DL2), by = "id")
-gaps  <- grid_sf %>% dplyr::filter(!id %in% dom$id)      # ~30 celler uden overlap
-
-message(nrow(gaps), " gap-celler udfyldes med nærmeste nabo")
-
-# nærmeste nabocelle med kendt habitat -> overtag dens substrattype
-nn <- st_nearest_feature(gaps, known)
-gap_fill <- gaps %>% st_drop_geometry() %>%
-  dplyr::transmute(
-    id,
-    All2019DL2     = known$All2019DL2[nn],
-    habitat        = known$All2019DL2[nn],
-    intersect_area = as.numeric(area_grid)   # hele cellen -> area_frac = 1
-  )
-
-# tilføj gap-cellerne til areal-tabellen
-koge_habs_A <- dplyr::bind_rows(koge_habs_A, gap_fill)
-
-# din frac-beregning som før (uden "Na"-linjen)
-koge_habs_frac <- left_join(grid_sf, koge_habs_A) %>%
-  mutate(area_frac = intersect_area / as.numeric(area_grid)) %>%
-  st_make_valid()
-
-
-koge_habs_frac<- left_join(grid_sf, koge_habs_A) %>%
-  mutate(area_frac = intersect_area / as.numeric(area_grid),
-         All2019DL2 = ifelse(is.na(All2019DL2), "Na", All2019DL2)) %>%
-  st_make_valid()
-
-
-
-habitat_typer <- unique(koge_habs_frac$habitat)
+habitat_typer <- unique(koge_habs_A$habitat)
 
 
 
@@ -176,26 +139,24 @@ for (hab in habitat_typer) {
   
   message("Laver raster for: ", hab)
   
+  hab_join <- koge_habs_A %>%
+    filter(habitat == hab) 
+  
   # Filtrer til ét habitat
-  hab_frac <- koge_habs_frac %>%
-    filter(habitat == hab) %>%
-    select(id, area_frac)
+  hab_frac <- left_join(grid_sf,hab_join) %>%
+    mutate(frac = tidyr::replace_na(frac,0))
 
   
   # Rasterize — brug area_frac som værdi
   r_hab <- terra::rasterize(
     terra::vect(hab_frac),
     grid_raster,
-    field      = "area_frac",
+    field      = "frac",
     fun        = "max",
-    background = 0
+    background = NA
   )
 
-  
-  # fill_na og masker
-  
-  r_hab_filled <- fill_na(r_hab,grid_raster, w = 3) 
-  
+
   # Rens habitatnavn til filnavn
   hab_filename <- hab %>%
     stringr::str_replace_all(" ", "_") %>%
@@ -211,56 +172,33 @@ for (hab in habitat_typer) {
   
   message("  → Gemt: ", hab_filename, ".tif")
   
-}
-
-
-############### Plotting for bilag ################
-
-for (hab in habitat_typer) {
   
-  message("Laver png for: ", hab)
-  
-  
-  # Filtrer til ét habitat
-  hab_frac <- koge_habs_frac %>%
-    filter(habitat == hab) %>%
-    select(id, area_frac) %>%
-    st_drop_geometry()
-  
-  hab_gridded <- left_join(grid_sf, hab_frac, by = "id") %>%
-    mutate(area_frac = ifelse(is.na(area_frac),0, area_frac)) %>%
+  hab_sf <- r_hab %>%
+    terra::as.polygons(dissolve = FALSE) %>%
+    st_as_sf() %>%
     st_make_valid()
-  
-  
-  # Rens habitatnavn til filnavn (samme logik som i raster-loopet)
-  hab_filename <- hab %>%
-    stringr::str_replace_all(" ", "_") %>%
-    stringr::str_replace_all("[^A-Za-z0-9_]", "") %>%
-    stringr::str_trunc(50, ellipsis = "")
   
   map_hab <- ggplot() +
     geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
-    geom_sf(data = hab_gridded,
-            aes(fill = area_frac, color = after_scale(fill)),
-            linewidth = 0.1) +
-    labs(subtitle = hab)+
+    geom_sf(data = hab_sf, 
+            aes(fill = frac), color = NA) +
     color_viridis+
     boundary+
     theme_minimal()+
     my_theme+
-    theme(plot.subtitle = element_text(size = 26))+
     north_arrow+
     scale_bar
   
-  ggsave(plot = map_hab,
-         filename = file.path(PATHS$output_ecosystem_png,"/broad_scale_hab/" ,paste0(hab_filename, ".png")),
-         bg = NULL,
-         height = 18,
-         width = 18,
-         dpi = 300)
+  
+  gem_trim(map_hab,
+           file.path(PATHS$output_ecosystem_png, "broad_scale_hab", paste0(hab_filename, ".png")),
+           dpi = 360, width_cm = 18)
+  
   
   message("  → Gemt: ", hab_filename, ".png")
+  
 }
+
 
 
 ## Tjek et enkelt lag
