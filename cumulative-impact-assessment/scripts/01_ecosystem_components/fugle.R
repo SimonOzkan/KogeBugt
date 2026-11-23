@@ -77,26 +77,92 @@ names(fugle_list) <- tools::file_path_sans_ext(basename(rastlist))
 
 
 ## --- artsnavne fra taxonid (autoritativt via WoRMS) ---
-taxid <- as.integer(str_extract(names(fugle_list), "(?<=taxonid=)\\d+"))
-sci   <- map_chr(taxid, ~ tryCatch(wm_id2name(.x), error = \(e) paste0("taxon_", .x)))
-slug  <- tolower(gsub(" ", "_", sci))
-names(fugle_list) <- slug
-print(data.frame(taxid, sci))     # tjek at mapping passer
+## --- artsnavne fra taxonid ---
+art_navne <- tribble(
+  ~taxid,  ~sci,                   ~dansk,
+  137073,  "Melanitta nigra",      "sortand",
+  137128,  "Alca torda",           "alk",
+  137074,  "Somateria mollissima", "ederfugl",
+  159098,  "Mergus serrator",      "toppet_skallesluger",
+  137186,  "Gavia arctica",        "sortstrubet_lom",
+  137071,  "Clangula hyemalis",    "havlit"
+)
 
+taxid <- as.integer(str_extract(basename(rastlist), "(?<=taxonid=)\\d+"))
+
+art_navn <- tibble(taxid = taxid) %>%
+  left_join(art_navne, by = "taxid") %>%
+  mutate(slug = tolower(gsub(" ", "_", sci)))
+
+stopifnot(!any(is.na(art_navn$slug)),
+          !any(duplicated(art_navn$slug)))
+
+slug <- art_navn$slug
+names(fugle_list) <- slug
+print(art_navn)   # tjek at mapping passer
+
+
+
+####### tilføjer kyst buffer til at fill na langs kysten. Nogle fugle er ikke tilstede længere ude i øresund/køge Bugt
+# Den oprindelige fill_na fyldte dog disse punkter og skabte forvrædning i data
+
+bbox <- st_read(file.path(PATHS$input_assessment_area,"bbox_omraade","koge_bugt_bbox.shp")) %>%
+  st_transform(crs = target_crs)
+  
+eu_kyst <- st_read(file.path(PATHS$input_assessment_area,"Europe_coastline_poly","Europe_coastline_poly.shp")) %>%
+  st_transform(crs = target_crs)
+
+
+
+kyst_buffer <- 5000   # meter, ca. én OBIS-celle
+
+
+land_sf <- eu_kyst %>%
+  st_make_valid() %>%
+  st_crop(st_bbox(st_buffer(bbox, kyst_buffer)))
+
+
+land_r <- land_sf %>%
+  terra::vect() %>%
+  terra::rasterize(grid_raster, field = 1)   # 1 på land, NA i havet
+
+afstand_land <- terra::distance(land_r)       # afstand fra havceller til nærmeste land
+
+kystzone <- terra::ifel(afstand_land <= kyst_buffer & !is.na(grid_raster), 1, NA)
+
+plot(kystzone)
+plot(st_geometry(land_sf), add = TRUE)
+
+
+fill_kyst <- function(r, template, kystzone, w = 3, max_iter = 20) {
+  out <- r
+  for (i in seq_len(max_iter)) {
+    mangler <- global(is.na(out) & !is.na(kystzone), "sum", na.rm = TRUE)[1, 1]
+    if (mangler == 0) break
+    filled <- terra::focal(out, w = w, fun = "mean", na.rm = TRUE)  # nabo-gennemsnit
+    filled <- terra::mask(filled, kystzone)                          # kun inden for kystzonen
+    out    <- terra::cover(out, filled)                              # fyld kun NA
+  }
+  out <- terra::cover(out, template * 0)   # resterende NA i området -> 0
+  terra::mask(out, template)
+}
 ## --- pipeline pr. art (præcis som sortand) ---
 til_grid <- function(r) {
   r <- r[["current"]] / 100                          # prædiktion -> 0-1
   r <- project(r, grid_raster, method = "bilinear")  # reprojicér + resample
-  r <- fill_na(r, grid_raster)                       # fyld kystnære huller
+  fill_kyst(r, grid_raster, kystzone,
+            max_iter = kyst_buffer / res(grid_raster)[1])  # fyld kun ved kysten, resten = 0
 }
 fugle_grid <- rast(lapply(fugle_list, til_grid))
 names(fugle_grid) <- slug
 
+plot(fugle_grid$mergus_serrator)
+plot(kystzone, add = TRUE, col = "red")
+
 ## --- gem individuelle raster pr. art ---
 out_dir <- file.path(PATHS$output_ecosystem_tif, "fugle")   # din output-mappe
-dir_create(out_dir)
 walk(slug, ~ writeRaster(fugle_grid[[.x]],
-                         file.path(out_dir, paste0("fugl_", .x, "_norm.tif")), overwrite = TRUE))
+                         file.path(out_dir, paste0("fugl_", .x, ".tif")), overwrite = TRUE))
 
 ## --- samlet lag: gennemsnit på tværs af alle arter ---
 fugle_mean <- mean(fugle_grid, na.rm = TRUE)   # celle-vist middel over arterne
@@ -104,35 +170,35 @@ names(fugle_mean) <- "fugle_gennemsnit"
 writeRaster(fugle_mean, file.path(out_dir, "fugle_samlet_gennemsnit_norm.tif"),
             overwrite = TRUE)
 
-plot(fugle_grid); plot(fugle_mean)
-
-fugl <- terra::rast(file.path(PATHS$output_ecosystem_tif,"fugle","fugl_clangula_hyemalis_norm.tif"))
 
 
-
-plot(fugl)
-
-fugl_sf <- fugl %>%
-  terra::as.polygons(dissolve = FALSE) %>% 
-  st_as_sf() %>%
-  st_transform(target_crs) %>% 
-  st_make_valid() 
-
-
-map_fugl<- ggplot() +
-  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
-  geom_sf(data = fugl_sf, aes(fill = clangula_hyemalis), color = NA) +
-  color_viridis+
-  boundary+
-  theme_minimal()+
-  my_theme+
-  north_arrow+
-  scale_bar
-
-
-gem_trim(map_fugl,
-         file.path(PATHS$output_ecosystem_png,"fugle" ,"fugl_norm.png"),
-         dpi = 360, width_cm = 18)
-
-
-
+## Lav plot til bilag for hver art
+for (art in fugle_arter) {
+  
+  message("Laver kort for: ", art)
+  
+  art_sf <- fugle_grid[[art]] %>%
+    terra::as.polygons(dissolve = FALSE) %>%
+    st_as_sf() %>%
+    rename(value = 1) %>%          # første kolonne = artens værdier
+    st_transform(target_crs) %>%
+    st_make_valid()
+  
+  map_art <- ggplot() +
+    geom_spatraster_rgb(data = tiles, maxcell = 5e6) +  # baggrund: relief
+    geom_sf(data = art_sf, aes(fill = value), color = NA) +
+    color_viridis +
+    boundary +
+    theme_minimal() +
+    my_theme +
+    north_arrow +
+    scale_bar
+  
+  fil_navn <- paste0("fugl_", art)
+  
+  gem_trim(map_art,
+           file.path(file.path(PATHS$output_ecosystem_png, "fugle", paste0(fil_navn, ".png"))),
+           dpi = 360, width_cm = 18)
+  
+  message("  → Gemt: ", fil_navn, ".png")
+}

@@ -21,32 +21,25 @@ names(r_mean_2013_2022) <- "value"
 
 marsvin_250 <- terra::project(r_mean_2013_2022, grid_raster, method = "bilinear")
 
+
+marsvin_rast_fill <- fill_na(marsvin_250, grid_raster, w= 3)
+
+plot(marsvin_rast_fill)
+
 terra::writeRaster(
-  marsvin_250,
-  filename = file.path(PATHS$output_ecosystem_tif,"pattedyr", "/marsvin_250.tif"),
+  marsvin_rast_fill,
+  filename = file.path(PATHS$output_ecosystem_tif,"pattedyr", "marsvin.tif"),
   overwrite = TRUE
 )
-
-
-plot(marsvin_250)
-
 # Konverter til sf polygon (kun present beholdes, 0 -> NA fjerner "absent"-celler)
-marsvin_sf <- marsvin_250 %>%
+marsvin_sf <- marsvin_rast_fill %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid()
 
-# plot
-map_eu <- st_read(file.path(PATHS$input_assessment_area,"/maps/Europe/Europe_merged3035.shp")) %>%
-  st_transform(.,crs = target_crs)
-
-
-# Sætter baggrundskortet i.e. hvor "value/fraction" = 0 til samme farve 
-viridis_start_color <- viridis_pal()(1)  
 
 map_marsvin <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
+  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
   geom_sf(data = marsvin_sf, 
           aes(fill = value), color = NA) +
   color_viridis+
@@ -60,7 +53,7 @@ map_marsvin
 
 
 ggsave(plot = map_marsvin,
-       filename = file.path(PATHS$output_ecosystem_png,"/pattedyr/" ,"marsvin.png"),
+       filename = file.path(PATHS$output_ecosystem_png,"pattedyr" ,"marsvin.png"),
        bg = NULL,
        height = 18,
        width = 18,
