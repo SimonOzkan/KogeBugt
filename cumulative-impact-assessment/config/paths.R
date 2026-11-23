@@ -26,6 +26,9 @@ set_project_paths <- function() {
     output_ecosystem_png   = file.path(TEAMS_BASE, "Data/Outputs/EC_png"),
     output_pressure_png    = file.path(TEAMS_BASE, "Data/Outputs/Pressure_png"),
     
+    # Data til sensitivity score
+    input_sensitivity      = file.path(TEAMS_BASE, "Data/sensitivity"),
+    
     # Lokale temp-files (i det lokale repo, ikke Teams)
     local_temp             = here::here("outputs")
   )
