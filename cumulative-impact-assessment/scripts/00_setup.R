@@ -113,7 +113,31 @@ scale_bar <-  annotation_scale(
 )
 
 
+## Effekt distance funktion (simpel lineær aftagelse (1-distance/max_distance))
+distance_decay <- function(pressure, grid_template ,max_distance){
+  
+  tmpl_ext <- terra::extend(grid_template, ceiling(max_dist / res(grid_template)[1]))
+  
+  kilde_r <- pressure %>%
+    terra::vect() %>%
+    terra::rasterize(tmpl_ext, field = 1, touches = TRUE)   # 1 i kildeceller
+  
+  if (max_dist <= 0) {
+    r <- terra::cover(kilde_r, tmpl_ext * 0)               # ingen spredning: kun kildecellen
+  } else {
+    afstand <- terra::distance(kilde_r)                    # meter til nærmeste kilde
+    r <- terra::clamp(1 - afstand / max_dist, lower = 0)   # 1 ved kilden -> 0 ved max_dist
+  }
+  
+  r %>%
+    terra::crop(grid_template) %>%
+    terra::mask(grid_template)
+  
+}
 
+
+
+### Fill na for raster input datalag, der ikke fylder hele området
 fill_na <- function(r, template, w = 3, max_iter = 200) {
   out <- r
   for (i in seq_len(max_iter)) {
@@ -127,7 +151,7 @@ fill_na <- function(r, template, w = 3, max_iter = 200) {
 }
 
 
-
+# Trim funktion til gem af plot
 gem_trim <- function(plot, path, dpi = 360, width_cm = 18) {
   # 1) gem RIGELIGT stort i høj opløsning (så resize kun nedskalerer = skarpt)
   ggsave(path, plot, bg = "white", width = 28, height = 28, units = "cm", dpi = dpi)

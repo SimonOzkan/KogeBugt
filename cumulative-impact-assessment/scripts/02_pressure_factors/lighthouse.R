@@ -14,45 +14,58 @@ lighthouse <- st_read(file.path(PATHS$input_pressure,
 #--------- intersection med undersøgelsesområdet
 fyr_koge <- st_intersection(lighthouse, assessment_area_dissolved)
 
-# Læg 25 m buffer omkring hvert fyrtårn (punkter -> cirkler)
-fyr_koge_buffer <- fyr_koge %>%
-  st_buffer(dist = 25) %>%
-  st_union() %>%
-  st_as_sf()
+######## Dette er ikke aktuelt efter effekt distance #####
+# # Læg 25 m buffer omkring hvert fyrtårn (punkter -> cirkler)
+# fyr_koge_buffer <- fyr_koge %>%
+#   st_buffer(dist = 25) %>%
+#   st_union() %>%
+#   st_as_sf()
+# 
+# # For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
+# # så arealet beregnes celle-for-celle
+# fyr_koge_buffer_grid <- st_intersection(fyr_koge_buffer, grid_sf) %>%
+#   mutate(area_fyr = st_area(.)) %>%
+#   st_drop_geometry() %>%
+#   group_by(id) %>%
+#   summarise(area_fyr_id = sum(as.numeric(area_fyr), na.rm = TRUE), .groups = "drop")
+# 
+# fyr_koge_gridded <- grid_sf %>%                            # start fra HELE grid
+#   left_join(fyr_koge_buffer_grid, by = "id") %>%        # join fyr-arealer på
+#   mutate(
+#     area_fyr_id = tidyr::replace_na(as.numeric(area_fyr_id), 0),  # ingen fyr = 0
+#     value = as.numeric(area_fyr_id) / as.numeric(area_grid)  ) %>%
+#   st_as_sf()
+# 
+# 
+# message("Antal grid-celler i alt: ", nrow(fyr_koge_gridded),
+#         " – heraf med fyrtårne: ", sum(fyr_koge_gridded$value > 0))
+# 
+# lav 
+# 
+# fyr_buffer_rast <- terra::rasterize(
+#   terra::vect(fyr_koge_gridded),
+#   grid_raster,
+#   field      = "value",
+#   fun        = "max",    # præcis en værdi på id
+#   background = NA         # celler udenfor assessment area → NA
+# )
+# plot(fyr_buffer_rast) 
+#-----------
 
-# For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
-# så arealet beregnes celle-for-celle
-fyr_koge_buffer_grid <- st_intersection(fyr_koge_buffer, grid_sf) %>%
-  mutate(area_fyr = st_area(.)) %>%
-  st_drop_geometry() %>%
-  group_by(id) %>%
-  summarise(area_fyr_id = sum(as.numeric(area_fyr), na.rm = TRUE), .groups = "drop")
+max_dist <- 5400 # m - taget fra økomar
 
-fyr_koge_gridded <- grid_sf %>%                            # start fra HELE grid
-  left_join(fyr_koge_buffer_grid, by = "id") %>%        # join fyr-arealer på
-  mutate(
-    area_fyr_id = tidyr::replace_na(as.numeric(area_fyr_id), 0),  # ingen fyr = 0
-    value = as.numeric(area_fyr_id) / as.numeric(area_grid)  ) %>%
-  st_as_sf()
+#### Anvender effekt distance funktion ##### 
+
+fyr_decay <- distance_decay(fyr_koge, grid_raster, max_dist)
+names(fyr_decay) <- "lighthouses"
+
+plot(fyr_decay)
+plot(st_geometry(fyr_koge), add = TRUE, pch = 16, cex = 0.5)
 
 
-message("Antal grid-celler i alt: ", nrow(fyr_koge_gridded),
-        " – heraf med fyrtårne: ", sum(fyr_koge_gridded$value > 0))
-
-#-------- Lav raster ------------------
-
-fyr_buffer_rast <- terra::rasterize(
-  terra::vect(fyr_koge_gridded),
-  grid_raster,
-  field      = "value",
-  fun        = "max",    # præcis en værdi på id
-  background = NA         # celler udenfor assessment area → NA
-)
-
-plot(fyr_buffer_rast)
 terra::writeRaster(
-  fyr_buffer_rast,
-  filename = file.path(PATHS$output_pressure_tif, "anlaeg", "fyrtaarne_buffer.tif"),
+  fyr_decay,
+  filename = file.path(PATHS$output_pressure_tif, "iei", "fyrtaarne_decay.tif"),
   overwrite = TRUE
 )
 
@@ -84,47 +97,3 @@ gem_trim(map_fyr_buffer,
          dpi = 360, width_cm = 18)
 
 
-
-# - Fyrtårne uden buffer ---------------------------
-
-# Sæt present-værdi (1) på alle fyrtårne
-fyr_koge_pa <- fyr_koge %>%
-  mutate(value = 1)
-
-# Konverter til raster: enhver celle berørt af et fyrtårn → 1, ellers 0
-fyr_pa_rast <- terra::rasterize(
-  terra::vect(fyr_koge_pa),
-  grid_raster,
-  field      = "value",
-  fun        = "max",    # present hvis mindst ét fyrtårn berører cellen
-  background = 0          # celler uden fyr (men i assessment area) → 0
-)
-# Maskér til assessment area, så celler udenfor bliver NA
-fyr_pa_rast <- terra::mask(fyr_pa_rast, assessment_area_vect)
-
-plot(fyr_pa_rast)
-terra::writeRaster(
-  fyr_pa_rast,
-  filename = file.path(PATHS$output_pressure_tif, "anlaeg", "fyrtaarne_pa.tif"),
-  overwrite = TRUE
-)
-
-############### Plotting for bilag ################
-map_fyr_pa <- ggplot() +
-  geom_sf(data = map_eu, fill = "#c3fbb1", color = NA, alpha = 0.5) +
-  geom_sf(data = assessment_area_dissolved, fill = viridis_start_color, color = "white", alpha = 1) +
-  geom_sf(data = fyr_koge, color = "yellow", size = 3) +
-  color_viridis +
-  boundary +
-  theme_minimal() +
-  my_theme +
-  north_arrow +
-  scale_bar
-map_fyr_pa
-
-ggsave(plot = map_fyr_pa,
-       filename = file.path(PATHS$output_pressure_png, "anlaeg", "fyrtaarne_pa.png"),
-       bg = "white",
-       height = 18,
-       width = 18,
-       dpi = 300)
