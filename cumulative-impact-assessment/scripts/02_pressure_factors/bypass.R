@@ -19,7 +19,8 @@ request_bypass <- paste0(
 bypass_all <- st_read(request_bypass) %>%
   st_transform(crs = target_crs) %>%
   st_make_valid() %>%
-  dplyr::select(OBJECTID,Maengde, geometry) %>%
+  dplyr::select(OBJECTID,Maengde, geometry,STATUS) %>%
+  filter(STATUS == "Gældende") %>%
   mutate(area_bypass = as.numeric(st_area(.)),
          m3_per_km2 = (as.numeric(Maengde) / area_bypass )*10^6,
          m3_per_km2_lg = log10(m3_per_km2+1))
@@ -103,14 +104,14 @@ save_raster(bypass_lg_decay, save_name = "bypass_lg_decay")
 ## Plot 
 ## ------------------------------------------------------------------
 
-bypass_sf <- r_bypass_fill %>%
+bypass_lg_sf <- bypass_rast_lg_norm %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
   st_make_valid()
 
-map_bypass <- ggplot() +
+map_bypass_lg <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
-  geom_sf(data = bypass_sf, aes(fill = value), color = NA) +
+  geom_sf(data = bypass_lg_sf, aes(fill = value_norm_lg), color = NA) +
   color_viridis+
   boundary+
   theme_minimal()+
@@ -119,9 +120,9 @@ map_bypass <- ggplot() +
   scale_bar
 
 
-map_bypass
+map_bypass_lg
 
-gem_trim(map_bypass,
-         file.path(PATHS$output_pressure_png, "iei", "bypass.png"),
+gem_trim(map_bypass_lg,
+         file.path(PATHS$output_pressure_png, "iei", "bypass_lg.png"),
          dpi = 360, width_cm = 18)
 
