@@ -75,7 +75,8 @@ bypass_rast_lg_norm <- terra::rasterize(
 par(mfrow = c(1,2))
 plot(bypass_rast)
 plot(bypass_rast_lg_norm)
-# bypass 8900
+
+# Bypass fra ØKOMAR ("Dredging in harbours and shipping lanes")
 max_dist <- 6400
 
 bypass_decay <- decay_focal(bypass_rast, max_dist)
@@ -121,6 +122,6 @@ map_bypass <- ggplot() +
 map_bypass
 
 gem_trim(map_bypass,
-         file.path(PATHS$output_pressure_png, "anlaeg", "bypass.png"),
+         file.path(PATHS$output_pressure_png, "iei", "bypass.png"),
          dpi = 360, width_cm = 18)
 
