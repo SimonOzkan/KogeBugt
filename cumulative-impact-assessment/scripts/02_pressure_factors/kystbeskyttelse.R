@@ -8,7 +8,7 @@ PATHS <- set_project_paths()
 
 ## Bemærk der er et lag kaldet sandfodring og Terrænændring (dækker det samme). Hør om det skal med. 
 
-# EMODnet for Sverige
+# HELCOM HOLAS
 kystbeskyt <- st_read(file.path(PATHS$input_pressure, "/kyst_modifikationer/_ags_CoastalDefence_lines_HOLAS3/CoastalDefence_lines_HOLAS3.shp")) %>%
   st_transform(crs = target_crs) %>%
   st_intersection(assessment_area_dissolved)
