@@ -12,59 +12,33 @@ lighthouse <- st_read(file.path(PATHS$input_pressure,
   st_transform(crs = target_crs)
 
 #--------- intersection med undersøgelsesområdet
-fyr_koge <- st_intersection(lighthouse, assessment_area_dissolved)
+fyr_koge <- st_intersection(lighthouse, grid_sf) %>%
+  mutate(value = 1)
 
-######## Dette er ikke aktuelt efter effekt distance #####
-# # Læg 25 m buffer omkring hvert fyrtårn (punkter -> cirkler)
-# fyr_koge_buffer <- fyr_koge %>%
-#   st_buffer(dist = 25) %>%
-#   st_union() %>%
-#   st_as_sf()
-# 
-# # For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
-# # så arealet beregnes celle-for-celle
-# fyr_koge_buffer_grid <- st_intersection(fyr_koge_buffer, grid_sf) %>%
-#   mutate(area_fyr = st_area(.)) %>%
-#   st_drop_geometry() %>%
-#   group_by(id) %>%
-#   summarise(area_fyr_id = sum(as.numeric(area_fyr), na.rm = TRUE), .groups = "drop")
-# 
-# fyr_koge_gridded <- grid_sf %>%                            # start fra HELE grid
-#   left_join(fyr_koge_buffer_grid, by = "id") %>%        # join fyr-arealer på
-#   mutate(
-#     area_fyr_id = tidyr::replace_na(as.numeric(area_fyr_id), 0),  # ingen fyr = 0
-#     value = as.numeric(area_fyr_id) / as.numeric(area_grid)  ) %>%
-#   st_as_sf()
-# 
-# 
-# message("Antal grid-celler i alt: ", nrow(fyr_koge_gridded),
-#         " – heraf med fyrtårne: ", sum(fyr_koge_gridded$value > 0))
-# 
-# lav 
-# 
-# fyr_buffer_rast <- terra::rasterize(
-#   terra::vect(fyr_koge_gridded),
-#   grid_raster,
-#   field      = "value",
-#   fun        = "max",    # præcis en værdi på id
-#   background = NA         # celler udenfor assessment area → NA
-# )
-# plot(fyr_buffer_rast) 
-#-----------
+fyr_koge_gridded <- grid_sf %>%
+  left_join(fyr_koge %>% st_drop_geometry()) %>%
+  mutate(value = tidyr::replace_na(value, 0))
 
 max_dist <- 5400 # m - taget fra økomar
 
-#### Anvender effekt distance funktion ##### 
 
-fyr_decay <- distance_decay(fyr_koge, grid_raster, max_dist)
-names(fyr_decay) <- "lighthouses"
+fyr_raster <- terra::rasterize(
+  terra::vect(fyr_koge_gridded),
+  grid_raster,
+  field      = "value",
+  fun        = "max",    # præcis en værdi på id
+  background = NA         # celler udenfor assessment area → NA
+)
+plot(fyr_raster)
 
-plot(fyr_decay)
+fyrtaarn_decay    <- decay_focal(fyr_raster, max_dist)
+
+plot(fyrtaarn_decay)
 plot(st_geometry(fyr_koge), add = TRUE, pch = 16, cex = 0.5)
 
 
 terra::writeRaster(
-  fyr_decay,
+  fyrtaarn_decay,
   filename = file.path(PATHS$output_pressure_tif, "iei", "fyrtaarne_decay.tif"),
   overwrite = TRUE
 )
@@ -93,7 +67,7 @@ map_fyr_buffer
 
 
 gem_trim(map_fyr_buffer,
-         file.path(PATHS$output_pressure_png, "anlaeg", "fyrtaarn.png"),
+         file.path(PATHS$output_pressure_png, "iei", "fyrtaarn.png"),
          dpi = 360, width_cm = 18)
 
 

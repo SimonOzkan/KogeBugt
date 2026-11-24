@@ -2,6 +2,9 @@
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
+
+############## INGEN KEMISK AMMONITION I OMRÅDET - KUN POTENTIELLE MINER #??????? SKAL DET MED???
+
 ## Indlæs ammunitiontærområder (polygoner)
 ammunition <- st_read(file.path(PATHS$input_pressure, "affald",
                                 "EMODnet_HA_WasteDisposal_DumpedMunitions_20260609",
@@ -42,7 +45,7 @@ ammunition_rast <- terra::rasterize(
 plot(ammunition_rast)
 
 terra::writeRaster(ammunition_rast,
-                   file.path(PATHS$output_pressure_tif, "affald", "ammunitiontaeromraader.tif"),
+                   file.path(PATHS$output_pressure_tif, "kemisk_forurening", "ammunitiontaeromraader.tif"),
                    overwrite = TRUE)
 
 ############### Plotting for bilag ################

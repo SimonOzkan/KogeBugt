@@ -1,16 +1,16 @@
 ##### sensitivity scores ##########
-#---------------------- Bentiske habitater (EUSeaMap) -----------------
 
 # Indlæs pakker og set path fra source setup fil
 source("scripts/00_setup.R")
 
 # Hent tilgængelige project paths
 PATHS <- set_project_paths()
-list_ecocomp <- read_csv("C:/Users/SIO/NIVA/Køge Bugt - General/data/sensitivity/list_ecocomp.csv")
 
-list_press <- read_csv("C:/Users/SIO/NIVA/Køge Bugt - General/data/sensitivity/list_stressors.csv")
+list_ecocomp <- read_csv(file.path(PATHS$input_sensitivity,"list_ecocomp.csv"))
 
-SS_all_090120 <- read_csv("C:/Users/SIO/NIVA/Køge Bugt - General/data/sensitivity/SS_all_090120.csv")
+list_press <- read_csv(file.path(PATHS$input_sensitivity,"list_stressors.csv"))
+
+SS_all_090120 <-read_csv(file.path(PATHS$input_sensitivity,"SS_all_090120.csv"))
 
 
 ##### Renaming af alle Økosystemkomponenter, så navnene matcher sensitivity scores ##########

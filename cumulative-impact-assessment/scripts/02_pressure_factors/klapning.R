@@ -47,21 +47,14 @@ klapning_all <- klapning_arealinfo %>%
 max_klap <- max(klapning_all$m3_per_km2, na.rm = TRUE)
 max_klap_log <- max(klapning_all$m3_per_km2_lg, na.rm = TRUE)
 
-min_klap <- min(klapning_all$m3_per_km2, na.rm = TRUE)
-min_klap_log <- min(klapning_all$m3_per_km2_lg, na.rm = TRUE)
-
-
-area_grid <- as.numeric(st_area(grid_sf))[1]              # celleareal (fx 62500)
 
 klapning_cells <- st_intersection(klapning_all, grid_sf) %>%
-  mutate(piece_area = as.numeric(st_area(.))) %>%
   st_drop_geometry() %>%
-  group_by(id) %>%
-  summarise(value = sum(m3_per_km2 * piece_area) / area_grid, .groups = "drop") %>%  # lineær celle-intensitet
-  mutate(value_lg      = log10(value + 1),                # log AF celle-intensiteten
+  mutate(value = m3_per_km2, 
+         value_lg      = log10(value + 1),                # log AF celle-intensiteten
          value_norm    = value    / max_klap,             # min=0 -> = (value-0)/(max-0)
-         value_norm_lg = value_lg / max_klap_log)          # max_klap_log = log10(max_klap + 1)       # 0-1
-
+         value_norm_lg = value_lg / max_klap_log) %>%          # max_klap_log = log10(max_klap + 1)       # 0-1
+  dplyr::select(id,value,value_norm,value_lg,value_norm_lg )
 
 ## 3. Fordel til grid, 0 hvor ingen klapning ----------------------------------
 klapning_gridded <- grid_sf %>%
@@ -69,7 +62,6 @@ klapning_gridded <- grid_sf %>%
   mutate(value_norm = tidyr::replace_na(value_norm, 0),
          value_norm_lg = tidyr::replace_na(value_norm_lg,0)) %>%
   st_make_valid()
-
 
 ## ------------------------------------------------------------------
 ## 3 Konverter til raster og gem
@@ -96,20 +88,30 @@ klapning_rast_lg_norm <- terra::rasterize(
 par(mfrow = c(1,2))
 plot(klapning_rast)
 plot(klapning_rast_lg_norm)
+# Klapning 8900
+max_dist <- 8900
 
-terra::writeRaster(
-  klapning_rast,
-  filename  = file.path(PATHS$output_pressure_tif, "anlaeg","\\klapning_norm.tif"),
-  overwrite = TRUE
-)
-
+klapning_decay <- decay_focal(klapning_rast, max_dist)
+klapning_lg_decay <- decay_focal(klapning_rast_lg_norm, max_dist)
 
 
-terra::writeRaster(
-  klapning_rast_lg_norm,
-  filename  = file.path(PATHS$output_pressure_tif, "anlaeg","\\klapning_log_norm.tif"),
-  overwrite = TRUE
-)
+par(mfrow = c(1,2))
+plot(klapning_decay)
+plot(klapning_lg_decay)
+
+
+
+save_raster <-function(r, save_name){
+  terra::writeRaster(
+    r,
+    filename = file.path(PATHS$output_pressure_tif, "iei",paste0(save_name,".tif")),
+    overwrite = TRUE
+  )
+}
+
+save_raster(klapning_decay, save_name = "klapning_decay_norm")
+save_raster(klapning_lg_decay, save_name = "klapning_lg_decay")
+
 
 
 ## ------------------------------------------------------------------
@@ -165,4 +167,6 @@ map_klapning_lg
 gem_trim(map_klapning_lg,
          file.path(PATHS$output_pressure_png, "anlaeg", "klapning_lg_norm.png"),
          dpi = 360, width_cm = 18)
+
+
 
