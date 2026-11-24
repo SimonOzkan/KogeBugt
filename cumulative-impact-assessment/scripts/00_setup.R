@@ -114,27 +114,19 @@ scale_bar <-  annotation_scale(
 
 
 ## Effekt distance funktion (simpel lineær aftagelse (1-distance/max_distance))
-distance_decay <- function(pressure, grid_template ,max_distance){
+decay_focal <- function(r, max_dist) {
+  cell <- res(r)[1]
+  n    <- ceiling(max_dist / cell)
   
-  tmpl_ext <- terra::extend(grid_template, ceiling(max_dist / res(grid_template)[1]))
-  
-  kilde_r <- pressure %>%
-    terra::vect() %>%
-    terra::rasterize(tmpl_ext, field = 1, touches = TRUE)   # 1 i kildeceller
-  
-  if (max_dist <= 0) {
-    r <- terra::cover(kilde_r, tmpl_ext * 0)               # ingen spredning: kun kildecellen
-  } else {
-    afstand <- terra::distance(kilde_r)                    # meter til nærmeste kilde
-    r <- terra::clamp(1 - afstand / max_dist, lower = 0)   # 1 ved kilden -> 0 ved max_dist
-  }
+  # Kegle-kerne: 1 i midten, aftager lineært til 0 ved max_dist
+  xy <- expand.grid(x = -n:n, y = -n:n) * cell
+  w  <- matrix(pmax(0, 1 - sqrt(xy$x^2 + xy$y^2) / max_dist), nrow = 2 * n + 1)
   
   r %>%
-    terra::crop(grid_template) %>%
-    terra::mask(grid_template)
-  
+    terra::classify(cbind(NA, 0)) %>%                       # NA -> 0, så kanten ikke giver huller
+    terra::focal(w = w, fun = "max", na.rm = TRUE) %>%      # max(intensitet x vægt), ingen addition
+    terra::mask(r)                                          # tilbage til undersøgelsesområdet
 }
-
 
 
 ### Fill na for raster input datalag, der ikke fylder hele området
