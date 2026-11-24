@@ -5,63 +5,84 @@ source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
 ## Indlæs broer hentet via OSM service i QGIS
-broer <- st_read(file.path(PATHS$input_pressure, "broer","osm_broer","broer_osm.gpkg")) 
+broer <- st_read(file.path(PATHS$input_pressure, "broer","osm_broer","broer_osm.gpkg")) %>%
+  st_transform(crs = target_crs)
+
+# Til at plotte
+broer_koge <- st_intersection(broer, assessment_area_dissolved)
 
 #--------- intersection med undersøgelsesområdet
-broer_koge <- st_intersection(broer, assessment_area_dissolved)
-message("Antal broer i undersøgelsesområdet: ", paste(nrow(broer_koge)))
+broer_highway_koge <- st_intersection(broer, grid_sf) %>%
+  mutate(value=1) %>%
+  filter(highway %in% c("motorway","motorway_link","road","busway")) %>%
+  st_drop_geometry()
 
-# Læg 50 m buffer omkring hver bro
-broer_koge_buffer <- broer_koge %>%
-  st_buffer(dist = 10) %>%  # gennemsnitlig bro-bredde er ca 10 meter
-  st_union() %>%
-  st_as_sf()
-
-# For at få fraktion pr. celle skal bufferne klippes til grid-cellerne igen,
-# så arealet beregnes celle-for-celle
-broer_koge_buffer_grid <- st_intersection(broer_koge_buffer, grid_sf) %>%
-  mutate(area_bro = st_area(.)) %>%
-  st_drop_geometry() %>%
-  group_by(id) %>%
-  summarise(area_bro_id = sum(area_bro), .groups = "drop")
-
-broer_koge_gridded <- grid_sf %>%                          
-  left_join(broer_koge_buffer_grid, by = "id") %>%      
-  mutate(
-    area_bro_id = tidyr::replace_na(as.numeric(area_bro_id), 0),  # ingen bro = 0
-    value = as.numeric(area_bro_id) / as.numeric(area_grid),
-    value = pmin(value, 1)
-  ) %>%
-  dplyr::select(id, value, geom) %>%
-  st_as_sf()
+broer_paths_koge <- st_intersection(broer, grid_sf) %>%
+  mutate(value=1) %>%
+  filter(!highway %in% c("motorway","motorway_link","road","busway"),
+         !id %in% broer_highway_koge$id) %>%
+  st_drop_geometry()
 
 
-message("Antal grid-celler i alt: ", nrow(broer_koge_gridded),
-        " – heraf med Broer: ", sum(broer_koge_gridded$value > 0))
+highway_gridded <- grid_sf %>%
+  left_join(broer_highway_koge) %>%
+  mutate(value = tidyr::replace_na(value, 0)) %>%
+  st_make_valid()
+
+
+paths_gridded <- grid_sf %>%
+  left_join(broer_paths_koge) %>%
+  mutate(value = tidyr::replace_na(value, 0)) %>%
+  st_make_valid()
 
 #-------- Lav raster ------------------
 
-bro_buffer_rast <- terra::rasterize(
-  terra::vect(broer_koge_gridded),
+highway_rast <- terra::rasterize(
+  terra::vect(highway_gridded),
   grid_raster,
   field      = "value",
   fun        = "max",    # præcis en værdi på id 
   background = NA         # celler udenfor assessment area → NA
 )
 
-plot(bro_buffer_rast)
-global(is.na(bro_buffer_rast) & !is.na(grid_raster), "sum")[1, 1]
-bro_buffer_fill <- fill_na(bro_buffer_rast, grid_raster, w = 3 ) # sikre at alle huller er udfyldt med 3x3 window mean
+path_rast <- terra::rasterize(
+  terra::vect(paths_gridded),
+  grid_raster,
+  field      = "value",
+  fun        = "max",    # præcis en værdi på id 
+  background = NA         # celler udenfor assessment area → NA
+)
+
+
+plot(highway_rast)
+
+plot(path_rast)
+
+
+
+max_dist_highway <- 3200 # ØKOMAR værdi
+max_dist_path <- 500
+
+
+highway_decay <- decay_focal(highway_rast, max_dist = max_dist_highway)
+
+path_decay <- decay_focal(path_rast, max_dist = max_dist_path)
+
+par(mfrow = c(1,2))
+plot(highway_decay)
+plot(path_decay)
+
+
 
 terra::writeRaster(
-  bro_buffer_fill,
-  filename = file.path(PATHS$output_pressure_tif,"anlaeg", "broer_buffer.tif"),
+  highway_decay,
+  filename = file.path(PATHS$output_pressure_tif,"iei", "highway_decay.tif"),
   overwrite = TRUE
 )
 
 terra::writeRaster(
-  bro_buffer_fill,
-  filename = file.path(PATHS$output_pressure_tif,"all_tif", "broer_buffer.tif"), 
+  path_decay,
+  filename = file.path(PATHS$output_pressure_tif,"iei", "path_decay.tif"), 
   overwrite = TRUE
 )
 
