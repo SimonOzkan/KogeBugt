@@ -7,6 +7,8 @@ PATHS <- set_project_paths()
 ## 1 Indlæs militærområder (se data folder / metadata_log)
 ## ------------------------------------------------------------------
 
+max_dist <- 13.4*10^3
+
 mili <- st_read(file.path(PATHS$input_pressure,
                           "military",
                           "EMODnet_HA_MilitaryAreas_20250314",
@@ -20,38 +22,28 @@ mili <- st_read(file.path(PATHS$input_pressure,
 ## 2 Intersection med grid
 ## ------------------------------------------------------------------
 
-mili_oresund <- st_intersection(grid_sf,mili) %>%
-  mutate(area_mili = as.numeric(st_area(.))) %>%
-  st_drop_geometry() %>%
-  group_by(id) %>%
-  summarise(area_mili = sum(area_mili, na.rm = TRUE), .groups = "drop")
-
-
-mili_area <- grid_sf %>%
-  left_join(mili_oresund) %>%
-  mutate(value = tidyr::replace_na(area_mili, 0),
-         value = as.numeric(value) / as.numeric(area_grid)) %>%
+mili_koge <- st_intersection(mili, assessment_area_dissolved) %>%
   st_make_valid()
 
+## sf til raster
+# Celler som en bro rører = 1, øvrige celler i området = 0, udenfor = NA
+sf_til_rast <- function(x) {
+  x %>%
+    terra::vect() %>%
+    terra::rasterize(grid_raster, field = 1, touches = TRUE, background = 0) %>%
+    terra::mask(grid_raster)
+}
 
-## ------------------------------------------------------------------
-## 3 Konverter til raster og gem
-## ------------------------------------------------------------------
 
-
-mili_rast <- terra::rasterize(
-  terra::vect(mili_area),
-  grid_raster,
-  field      = "value",
-  fun        = "max",      # hvis overlap: tag max fraktion
-  background = NA          # celler udenfor assessment area sættes NA
-)
-
+mili_rast <- sf_til_rast(mili_koge)
 plot(mili_rast)
 
+mili_decay <- decay_focal(mili_rast, max_dist)
+plot(mili_decay)
+
 terra::writeRaster(
-  mili_rast,
-  filename  = file.path(PATHS$output_pressure_tif, "restriktive_omraader","\\militaeromraader.tif"),
+  mili_decay,
+  filename  = file.path(PATHS$output_pressure_tif, "restriktive_omraader","militaeromraader_decay.tif"),
   overwrite = TRUE
 )
 
@@ -63,7 +55,8 @@ terra::writeRaster(
 mili_rast_sf <- mili_rast %>%
   terra::as.polygons(dissolve = FALSE) %>%
   st_as_sf() %>%
-  st_make_valid()
+  st_make_valid() %>%
+  rename("value" = "layer")
 
 
 
@@ -81,5 +74,5 @@ map_mili <- ggplot() +
 map_mili
 
 gem_trim(map_mili,
-         file.path(PATHS$output_pressure_png, "restriktive_omraader\\militaer.png"),
+         file.path(PATHS$output_pressure_png, "restriktive_omraader","militaer.png"),
          dpi = 360, width_cm = 18)
