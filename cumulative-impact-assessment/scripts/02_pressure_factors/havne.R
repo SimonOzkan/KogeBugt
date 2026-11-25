@@ -11,14 +11,23 @@ PATHS <- set_project_paths()
 ## ------------------------------------------------------------------
 ## Parametre 
 ## ------------------------------------------------------------------
-# Bufferradius i meter. 
-buffer_industri  <- 250
-buffer_lystbaad  <- 250
-
+# Effektdistance
+max_dist_industri <- 10.1*10^3
+max_dist_lystbaad  <- 5.6*10^3
 
 ## ------------------------------------------------------------------
 ## 1. Indlæs havne (EMODnet MainPorts) og klip til området
 ## ------------------------------------------------------------------
+
+baltic_sea <-  st_read(file.path(PATHS$input_assessment_area,
+                                 "HELCOM",
+                                 "HELCOM_waterbodies",
+                                 "HELCOM_subbasin_with_coastal_WFD_waterbodies_or_watertypes_2022_eutro.shp")) %>%
+  st_transform(crs = target_crs) %>%
+  st_union() %>%
+  st_buffer(dist = 1000)
+
+
 
 havne_good_traffic <- st_read(file.path(PATHS$input_pressure,
                                         "havne",
@@ -26,8 +35,8 @@ havne_good_traffic <- st_read(file.path(PATHS$input_pressure,
                                         "EMODnet_HA_MainPorts_Ports2025_20251210.shp")) %>%
   st_transform(crs = target_crs) %>%
   mutate(PORT_ID = as.character(PORT_ID))   # sikr fælles nøgletype til join
-
-havne_koge <- st_intersection(havne_good_traffic, assessment_area_dissolved)
+havne_geom <- havne_good_traffic %>%
+  dplyr::select(PORT_ID, geometry, PORT_NAME)
 
 
 ###### Havne fra harbour maps (hentet manuelt for hver havn)
@@ -60,17 +69,11 @@ Goods_Traffic <- read_delim(file.path(PATHS$input_pressure,
 ## Godsmængde pr. havn + klassificér industri vs. lystbåd
 ## ------------------------------------------------------------------
 
-cargo_per_port <- havne_koge %>%
-  st_drop_geometry() %>%
-  left_join(Goods_Traffic, by = "PORT_ID") %>%
-  group_by(PORT_ID) %>%
-  summarise(mean_cargo = mean(tot_yr_cargo, na.rm = TRUE), .groups = "drop")
-
-
 
 
 ## ---- normaliseringsanker fra HELE datasættet (alle havne, ikke kun Køge) ----
-cargo_all <- havne_good_traffic %>%          
+cargo_all_baltic <- havne_good_traffic %>%    
+  st_filter(baltic_sea) %>% # baserer min og max på havne i Østersøen
   st_drop_geometry() %>%
   left_join(Goods_Traffic, by = "PORT_ID") %>%
   group_by(PORT_ID) %>%
@@ -78,25 +81,14 @@ cargo_all <- havne_good_traffic %>%
   filter(!is.na(mean_cargo))
 
 # max af log10(cargo+1) over ALLE industrihavne = normaliserings-max
-max_full <- max(log10(cargo_all$mean_cargo + 1), na.rm = TRUE)
-message("Normaliseringsanker (log-cargo max, hele datasættet): ", round(max_full, 3))
-
+max_full <- max(cargo_all_baltic$mean_cargo, na.rm = TRUE)
+max_full_lg <- max(log10(cargo_all_baltic$mean_cargo + 1), na.rm = TRUE)
 
 
 # Lystbådshavne har ingen import/eksport -> mean_cargo bliver NaN (is.na() fanger NaN)
-havne_industri_df <- cargo_per_port %>% filter(!is.na(mean_cargo))
-havne_lystbaad_df <- lystbaad
-
-
-message("Industrihavne: ", nrow(havne_industri_df),
-        " | Lystbådshavne: ", nrow(havne_lystbaad_df))
-
-
-# Rejoin punkt-geometri 
-
-industri_pts <- havne_geom %>% 
-  inner_join(havne_industri_df, by = "PORT_ID")
-
+industri_pts <- cargo_all_baltic %>% 
+  left_join(havne_geom, by = "PORT_ID") %>%
+  st_as_sf()
 
 ## ==================================================================
 ## LAG 1 - INDUSTRIHAVNE (vægtet efter godsmængde)
@@ -104,83 +96,78 @@ industri_pts <- havne_geom %>%
 
 # Buffer pr. havn; behold mean_cargo. Log-transformer, da godsmængde er stærkt
 # højreskæv (få store havne dominerer) - samme logik som skibstrafik/olie.
-industri_buffer <- industri_pts %>%
-  st_buffer(dist = buffer_industri) %>%
-  mutate(value_raw = log10(mean_cargo+1))
+industri_norm <- industri_pts %>%
+  mutate(value_norm = mean_cargo / max_full,
+         value_lg_norm = log10(mean_cargo+1) / max_full_lg) %>%
+  st_intersection(grid_sf) %>%
+  st_drop_geometry()
 
 
-industri_buffer_id <- st_intersection(grid_sf, industri_buffer) %>%
-  st_drop_geometry() %>%
-  distinct()
-  
-industri_buffer_gridded <- left_join(grid_sf, industri_buffer_id) %>%
-  mutate(value_raw = tidyr::replace_na(value_raw, 0)) %>%
-  st_as_sf() %>%
-  st_make_valid
-
+industri_gridded <- grid_sf %>%
+  left_join(industri_norm) %>%
+  mutate(value_norm = tidyr::replace_na(value_norm, 0),
+         value_lg_norm = tidyr::replace_na(value_lg_norm, 0))
 
 industri_rast <- terra::rasterize(
-  terra::vect(industri_buffer_gridded),
+  terra::vect(industri_gridded),
   grid_raster,
-  field      = "value_raw",
+  field      = "value_norm",
+  fun        = "max",
+  background = NA
+) 
+industri_rast_lg <- terra::rasterize(
+  terra::vect(industri_gridded),
+  grid_raster,
+  field      = "value_lg_norm",
   fun        = "max",
   background = NA
 ) 
 
 
+names(industri_rast_lg) <- "value"
 
-# Mask og evt fill huller 
-industri_rast_fill <- fill_na(industri_rast, grid_raster, w = 3)
+plot(industri_rast_lg)
 
-## Normalisér til 0-1 mod HELE datasættet (anker: 0 = ingen havn, max = travleste havn i datasættet)
-industri_norm <- terra::clamp(industri_rast / max_full, 0, 1)
-names(industri_norm) <- "value"
+industri_rast_lg_decay <- decay_focal(industri_rast_lg, max_dist_industri)
+plot(industri_rast_lg_decay)
 
-plot(industri_norm)
 
-terra::writeRaster(industri_norm,
-                   file.path(PATHS$output_pressure_tif, "anlaeg", "havne_industri_norm.tif"),
+terra::writeRaster(industri_rast_lg_decay,
+                   file.path(PATHS$output_pressure_tif, "iei", "havne_industri_norm_decay.tif"),
                    overwrite = TRUE)
 
 ## ==================================================================
-## LAG 2 - LYSTBÅDSHAVNE (fysisk tilstedeværelse -> fraktion pr. celle)
+## LAG 2 - LYSTBÅDSHAVNE fysisk tilstedeværelse -> 1
 ## ==================================================================
 # Samme fremgangsmåde som fyrtårne/renseanlæg.
 
-lyst_buffer <- lystbaad %>%
+lystbaad_sf <- lystbaad %>%
   st_as_sf(.,coords = c("x" = "lon","y"="lat"), crs = 4326) %>%
-  st_transform(crs = target_crs) %>%
-  st_buffer(dist = buffer_lystbaad) %>%
-  st_as_sf()
+  st_transform(crs = target_crs)
 
-lyst_buffer_grid <- st_intersection(lyst_buffer, grid_sf) %>%
-  mutate(area_lyst = st_area(.)) %>%
-  st_drop_geometry() %>%
-  group_by(id) %>%
-  summarise(area_lyst_id = sum(as.numeric(area_lyst)), .groups = "drop")
 
-lyst_gridded <- grid_sf %>%
-  left_join(lyst_buffer_grid, by = "id") %>%
-  mutate(
-    area_lyst_id = tidyr::replace_na(as.numeric(area_lyst_id), 0),
-    value = as.numeric(area_lyst_id) / as.numeric(area_grid)
-  ) %>%
-  st_as_sf()
+tmpl_ext <- terra::extend(grid_raster, ceiling(max_dist_lystbaad / res(grid_raster)[1]) + 1)
+grid_raster_ext <- terra::extend(grid_raster_ext, grid_raster_ext*(grid_raster_ext*1.5))
 
-message("Grid-celler med lystbådshavn: ", sum(lyst_gridded$value > 0))
+plot(tmpl_ext)
+plot(grid_raster, col = "red", add = TRUE)
 
 lyst_rast <- terra::rasterize(
-  terra::vect(lyst_gridded),
-  grid_raster,
-  field      = "value",
-  fun        = "max",
-  background = NA
-)
+  terra::vect(lystbaad_sf),
+  tmpl_ext,
+  field      = 1,
+  touches    = TRUE,
+  background = 0)
 
 
 plot(lyst_rast)
-terra::writeRaster(lyst_rast,
-                   file.path(PATHS$output_pressure_tif, "anlaeg", "havne_lystbaad_frak.tif"),
+
+lyst_rast_decay <- decay_focal(lyst_rast, max_dist_lystbaad)
+
+plot(lyst_rast_decay)
+
+terra::writeRaster(lyst_rast_decay,
+                   file.path(PATHS$output_pressure_tif, "iei", "havne_lystbaad_decay.tif"),
                    overwrite = TRUE)
 
 
