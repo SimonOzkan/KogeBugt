@@ -1,19 +1,33 @@
-#----------------------------------- Kabler og gasrør -----------------------#
-source("scripts/00_setup.R")
+#---------------------------- Kabler og gasrør (decay) ------------------------
+# Kabler (MST + Energinet) og olie/gas-rørledninger (EMODnet).
+# Celler som en linje rører får værdien 1, hvorfra presset aftager lineært til 0
+# ved effektdistancen. Overlappende effektzoner håndteres med max (ingen addition).
+#------------------------------------------------------------------------------
+
+source("scripts/00_setup.R")   # pakker, grid, decay_focal()
 PATHS <- set_project_paths()
-## --- WFS-kilder ---
+
+
+## Parametre ------------------------------------------------------------------
+
+max_dist_kabler <- 100   # m, ØKOMAR "Sea cables" (mean 0.10 km)
+max_dist_gasroer <- 200  # m, ØKOMAR "Oil and gas pipelines" (mean 0.2 km)
+
+
+## WFS-kilder -----------------------------------------------------------------
+
 wfs_url_anlaeg_linje  <- "https://gisportal.mst.dk/server/services/ekstern/KDI_anlaeg_paa_soeterritoriet/MapServer/WFSServer"
 wfs_url_el_kabel      <- "https://agis.energinet.dk/server/services/INSPIRE/XP_el_Inspir/MapServer/WFSServer"
 wfs_url_olie_gas_pipe <- "https://ows.emodnet-humanactivities.eu/wfs"
 
-## --- 1. Hent data ---
+
+## 1. Hent data ---------------------------------------------------------------
+
 anlaeg_linje <- st_read(paste0(wfs_url_anlaeg_linje,
                                "?service=WFS&version=2.0.0&request=GetFeature",
                                "&typeNames=KDI_anlaeg_paa_soeterritoriet:Anlaeg_paa_soeterritoriet__linje_",
-                               "&outputFormat=GEOJSON")) %>% st_transform(target_crs)
-
-kabler_mst <- anlaeg_linje %>%
-  filter(TYPE %in% c("Kabler, rørledninger og klimanalæg"))
+                               "&outputFormat=GEOJSON"), quiet = TRUE) %>%
+  st_transform(target_crs)
 
 kabler_energinet <- st_read(paste0(wfs_url_el_kabel,
                                    "?service=WFS&version=2.0.0&request=GetFeature",
@@ -25,138 +39,89 @@ pipelines_emodnet <- st_read(paste0(wfs_url_olie_gas_pipe,
                                     "&typeNames=emodnet:pipelines&outputFormat=application/json"), quiet = TRUE) %>%
   st_transform(target_crs)
 
-## --- 2. Klip til undersøgelsesområdet ---
-kabler_koge_mst <-   kabler_mst %>%
+
+## 2. Udvælg og klip til undersøgelsesområdet --------------------------------
+
+kabler_koge_mst <- anlaeg_linje %>%
+  filter(TYPE == "Kabler, rørledninger og klimanalæg") %>%
   st_intersection(assessment_area_dissolved) %>%
   transmute(kilde = "MST")
-  
 
-# ### Kontek elektrode anglæg anvendes om preslag i kemisk forurening
-# kontek_elektrode <- kabler_energinet %>%
-#   filter(Spaending == "Elektrode")
-# st_write(kontek_elektrode,file.path(PATHS$input_pressure, "kemisk_forurening","kontek_elektrode","kontek_elektrode.shp"), append = FALSE)  
-
-
-kabler_koge_energi <-   kabler_energinet %>%
-  filter(!Spaending == "Elektrode") %>%
+# Kontek-elektrodeanlæg udelades her (anvendes i preslag for kemisk forurening)
+kabler_koge_energi <- kabler_energinet %>%
+  filter(Spaending != "Elektrode") %>%
   st_intersection(assessment_area_dissolved) %>%
-  transmute(kilde = "energinet") 
-  
-## Samlet kabler
-kabler_koge <- bind_rows(kabler_koge_mst,kabler_koge_energi)
+  transmute(kilde = "Energinet")
+
+kabler_koge <- bind_rows(kabler_koge_mst, kabler_koge_energi)
+
+gasroer_koge <- pipelines_emodnet %>%
+  st_intersection(assessment_area_dissolved)
 
 
-### gasrør
-gasrør_koge <- pipelines_emodnet %>%
-  st_intersection(assessment_area_dissolved) 
+## 3. Rasterisér til 250 m grid -----------------------------------------------
 
-plot(st_geometry(gasrør_koge))
-## --- 3. Funktion: linjer -> korridor -> arealfraktion pr. celle -> raster ---.
-# Erstat med officiel kabel-/rørkorridorbredde for danske farvande, hvis den findes.
-buffer_width <- 5 # Sat til 5 meter, hvilket formentlig fortsat er lidt større end rigtigt. Der kommer effekt-distance på
-
-korridor_frac <- function(linjer, grid_sf, grid_raster, buffer_width = 5) {
-  korridor <- linjer %>%
-    st_buffer(buffer_width) %>%
-    st_union() %>% st_make_valid() %>% st_as_sf()
-  
-  # areal af korridor pr. gridcelle
-  frac_tbl <- st_intersection(korridor, grid_sf) %>%
-    st_make_valid() %>%
-    mutate(area_korridor = as.numeric(st_area(.))) %>%
-    st_drop_geometry() %>%
-    group_by(id) %>%
-    summarise(area_korridor = sum(area_korridor, na.rm = TRUE), .groups = "drop")
-  
-  # join til ALLE celler: fraktion = korridorareal / celleareal, NA -> 0
-  grid_frac <- grid_sf %>%
-    left_join(frac_tbl, by = "id") %>%
-    mutate(area_cell = as.numeric(st_area(.)),
-           value = ifelse(is.na(area_korridor), 0, area_korridor / area_cell),
-           value = pmin(value, 1))                 # clamp mod floating point
-  
-  r <- terra::rasterize(terra::vect(grid_frac),
-                        grid_raster,
-                        field = "value", 
-                        fun = "max",
-                        background = NA) %>%
-    terra::mask(grid_raster)                        # indenfor område: 0..1, udenfor: NA
-  
-  list(raster = r, korridor = korridor, grid_frac = grid_frac)
+# Celler som en linje rører = 1, øvrige celler i området = 0, udenfor = NA
+linje_til_rast <- function(x) {
+  x %>%
+    terra::vect() %>%
+    terra::rasterize(grid_raster, field = 1, touches = TRUE, background = 0) %>%
+    terra::mask(grid_raster)
 }
 
-kabler <- korridor_frac(kabler_koge, grid_sf, grid_raster, buffer_width)
-gasrør <- korridor_frac(gasrør_koge, grid_sf, grid_raster, buffer_width)
-
-## --- 4. Gem raster ---
-plot(kabler$raster, main = "Kabler og rørledninger – arealfraktion")
-plot(gasrør$raster, main = "Gasrør – arealfraktion")
+kabler_rast  <- linje_til_rast(kabler_koge)
+gasroer_rast <- linje_til_rast(gasroer_koge)
 
 
+## 4. Effektdistance (lineært decay) ------------------------------------------
 
-terra::writeRaster(kabler$raster,
-                   file.path(PATHS$output_pressure_tif,"kabler","kabler.tif"), overwrite = TRUE)
-terra::writeRaster(gasrør$raster,
-                   file.path(PATHS$output_pressure_tif,"kabler" ,"gasrør.tif"), overwrite = TRUE)
+kabler_decay  <- decay_focal(kabler_rast,  max_dist = max_dist_kabler)
+gasroer_decay <- decay_focal(gasroer_rast, max_dist = max_dist_gasroer)
 
-#### All tif samlet ######
-terra::writeRaster(kabler$raster,
-                   file.path(PATHS$output_pressure_tif,"all_tif","kabler.tif"), overwrite = TRUE)
-terra::writeRaster(gasrør$raster,
-                   file.path(PATHS$output_pressure_tif,"all_tif" ,"gasrør.tif"), overwrite = TRUE)
+plot(kabler_decay)
 
+names(kabler_decay)  <- "kabler_decay"
+names(gasroer_decay) <- "gasroer_decay"
 
-
-kabler_sf <- kabler$grid_frac %>%
-  filter(!value == 0)
+par(mfrow = c(1, 2))
+plot(kabler_decay,  main = "Kabler")
+plot(gasroer_decay, main = "Gasrør")
 
 
-## --- 5. Bilag: kabler
-map_kabler <- ggplot() +
-  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
-  geom_sf(data = assessment_area_dissolved,
-          aes(fill = "Ikke tilstede"), color = "black", alpha = 1) +
-  geom_sf(data = kabler_sf,
-          aes(fill = "Tilstede"), shape = 21, color = NA, size = 1.5) +
-  scale_fill_manual(name = NULL,
-                    values = c("Tilstede" = "red", "Ikke tilstede" = "#9FBDD8"))+
-  boundary+
-  theme_minimal()+
-  my_theme+
-  theme(legend.position = c(.95, .95),
-        legend.justification = c("right", "top"),
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.text = element_text(size = 16))+
-  north_arrow+
-  scale_bar
-## --- 5. Bilag: gasrør
-rør_sf <- gasrør$grid_frac %>%
-  filter(!value == 0)
-map_pipes <- ggplot() +
-  geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
-  geom_sf(data = assessment_area_dissolved,
-          aes(fill = "Ikke tilstede"), color = "black", alpha = 1) +
-  geom_sf(data = rør_sf,
-          aes(fill = "Tilstede"), shape = 21, color = NA, size = 1.5) +
-  scale_fill_manual(name = NULL,
-                    values = c("Tilstede" = "red", "Ikke tilstede" = "#9FBDD8"))+
-  boundary+
-  theme_minimal()+
-  my_theme+
-  theme(legend.position = c(.95, .95),
-        legend.justification = c("right", "top"),
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.text = element_text(size = 16))+
-  north_arrow+
-  scale_bar
+## 5. Gem rastere -------------------------------------------------------------
+terra::writeRaster(kabler_decay,
+                   file.path(PATHS$output_pressure_tif, "iei", "kabler_decay.tif"),  overwrite = TRUE)
+terra::writeRaster(gasroer_decay,
+                   file.path(PATHS$output_pressure_tif, "iei", "gasroer_decay.tif"), overwrite = TRUE)
 
 
+## 6. Kort til bilag ----------------------------------------------------------
+
+lav_linjekort <- function(linjer, farve_label = "Tilstede") {
+  ggplot() +
+    geom_spatraster_rgb(data = tiles, maxcell = 5e6) +            # baggrund: relief
+    geom_sf(data = assessment_area_dissolved, fill = "#9FBDD8", color = "black") +
+    geom_sf(data = linjer, aes(color = farve_label), linewidth = 0.8) +
+    scale_color_manual(name = NULL, values = setNames("red", farve_label)) +
+    boundary +
+    theme_minimal() +
+    my_theme +
+    theme(legend.position      = c(.95, .95),
+          legend.justification = c("right", "top"),
+          legend.background    = element_rect(fill = "transparent", colour = NA),
+          legend.text          = element_text(size = 16)) +
+    north_arrow +
+    scale_bar
+}
+
+map_kabler <- lav_linjekort(kabler_koge,  "Kabler")
+map_pipes  <- lav_linjekort(gasroer_koge, "Gasrør")
 
 
 gem_trim(map_kabler,
-         file.path(PATHS$output_pressure_png, "kabler", "map_kabler_pa.png"),
+         file.path(PATHS$output_pressure_png, "iei", "map_kabler_pa.png"),
          dpi = 360, width_cm = 18)
 
 gem_trim(map_pipes,
-         file.path(PATHS$output_pressure_png, "kabler", "map_rør_pa.png"),
+         file.path(PATHS$output_pressure_png, "iei", "map_roer_pa.png"),
          dpi = 360, width_cm = 18)

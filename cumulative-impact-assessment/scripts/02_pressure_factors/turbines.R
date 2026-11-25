@@ -2,7 +2,7 @@
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
-
+max_dist = 4300
 ## ------------------------------------------------------------------
 ## 1. Indlæs vindmøllepark polygoner
 ## ------------------------------------------------------------------
@@ -14,52 +14,24 @@ turbines <- st_read(file.path(PATHS$input_pressure, "/havvind/EMODnet_HA_Energy_
 print(unique(turbines$STATUS))
 
 turbines_koge <- st_intersection(turbines, assessment_area_dissolved) %>%
-  filter(st_geometry_type(geometry) %in% c("POLYGON", "MULTIPOLYGON")) %>%
   st_make_valid()
 
 
 ## ------------------------------------------------------------------
 ## 2. Funktion til fraktion-beregning
 ## ------------------------------------------------------------------
-calc_frac <- function(lag_sf, grid_sf, grid_area) {
-  intersection <- st_intersection(grid_sf, lag_sf) %>%
-    mutate(area_intersect = as.numeric(st_area(.))) %>%
-    st_drop_geometry() %>%
-    group_by(id) %>%
-    summarise(area_intersect = sum(as.numeric(area_intersect), na.rm = TRUE), .groups = "drop")
-  
-  if (nrow(intersection) == 0) {
-    message("  → Ingen overlap med grid")
-    return(NULL)
-  }
-  
-  frac <- grid_sf %>%
-    left_join(intersection, by = "id") %>%
-    mutate(
-      value = tidyr::replace_na(as.numeric(area_intersect), 0),  # ingen vindmøller
-      value = value / area_grid
-    ) %>%
-    st_make_valid()
-  
-  return(frac)
+# Celler som en bro rører = 1, øvrige celler i området = 0, udenfor = NA
+sf_til_rast <- function(x) {
+  x %>%
+    terra::vect() %>%
+    terra::rasterize(grid_raster, field = 1, touches = TRUE, background = 0) %>%
+    terra::mask(grid_raster)
 }
+
 
 ## ------------------------------------------------------------------
 ## 3. Funktion til rasterisering
 ## ------------------------------------------------------------------
-make_raster <- function(frac_df, grid, assessment_area_vect, target_crs) {
-  
-  
-  r <- terra::rasterize(
-    terra::vect(frac_df),
-    grid_raster,
-    field      = "value",
-    fun        = "max",
-    background = NA
-  )
-  return(r)
-
-}
 
 ## ------------------------------------------------------------------
 ## 4. Filtrer per STATUS og beregn fraktioner
@@ -68,22 +40,27 @@ turbines_production <- turbines_koge %>% filter(STATUS == "Production")
 turbines_approved   <- turbines_koge %>% filter(STATUS == "Approved")
 turbines_planned    <- turbines_koge %>% filter(STATUS == "Planned")
 
-frac_production <- calc_frac(turbines_production, grid_sf, grid_area)
+frac_production <- sf_til_rast(turbines_production)
+names(frac_production) <- "turb_prod"
+frac_approved <- sf_til_rast(turbines_approved)
 
-frac_approved <- calc_frac(turbines_approved, grid_sf, grid_area)
+frac_planned <- sf_til_rast(turbines_planned)
 
-frac_planned <- calc_frac(turbines_planned, grid_sf, grid_area)
+par(mfrow = c(3,1))
+plot(frac_production)
+plot(frac_approved)
+plot(frac_planned)
 
 ## ------------------------------------------------------------------
 ## 5. Lav rasters
 ## ------------------------------------------------------------------
-r_production <- make_raster(frac_production, grid_raster)
-r_approved   <- make_raster(frac_approved,   grid_raster)
-r_planned    <- make_raster(frac_planned,    grid_raster)
+par(mfrow = c(1,1))
+frac_production_decay <- decay_focal(frac_production, max_dist)
 
+plot(frac_production_decay)
 
 # Gem tif filer
-terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_production_frac.tif"), overwrite = TRUE)
+terra::writeRaster(frac_production_decay, file.path(PATHS$output_pressure_tif, "iei/vindmoelleparker_production_decay.tif"), overwrite = TRUE)
 terra::writeRaster(r_production, file.path(PATHS$output_pressure_tif, "all_tif/vindmoelleparker_production_frac.tif"), overwrite = TRUE)
 
 terra::writeRaster(r_approved,   file.path(PATHS$output_pressure_tif, "anlaeg/vindmoelleparker_approved_frac.tif"),   overwrite = TRUE)
@@ -100,8 +77,9 @@ to_sf <- function(r) {
     st_transform(crs = target_crs)
 }
 
-production_sf_plot <- to_sf(r_production) %>%
-  mutate(status = "aktiv")
+production_sf_plot <- to_sf(frac_production) %>%
+  mutate(status = "aktiv") %>%
+  rename("value" = "turb_prod")
 approved_sf_plot   <- to_sf(r_approved)%>%
   mutate(status = "godkendt")
 planned_sf_plot    <- to_sf(r_planned)%>%
@@ -139,7 +117,7 @@ map_approved
 map_planned
 
 gem_trim(map_production,
-         file.path(PATHS$output_pressure_png, "anlaeg\\vindmoelleparker_production.png"),
+         file.path(PATHS$output_pressure_png, "iei\\vindmoelleparker_production.png"),
          dpi = 360, width_cm = 18)
 
 gem_trim(map_approved,
