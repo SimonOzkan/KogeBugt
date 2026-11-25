@@ -2,6 +2,8 @@
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
+
+max_dist <- 5.1 * 10^3 
 # ── 1. Hent råstofsområder fra WFS (Havplan) ─────────────────────────────────
 bbox_wgs84 <- st_bbox(st_transform(assessment_area_dissolved, crs = 4326))
 
@@ -47,7 +49,7 @@ pg_amount <- read_excel("C:/Users/SIO/NIVA/Køge Bugt - General/data/Pressure/ra
                        sheet = "pg_Data_20250902")
 
 
-periode_r <- 2018:2025                                   # <- TJEK at DK har data her!
+periode_r <- 2018:2025                      
 
 
 amt <- point_amount %>%
@@ -73,17 +75,12 @@ raastof_all <- raastof_emodnet %>%
 
 max_r     <- max(raastof_all$m3_per_km2,    na.rm = TRUE)
 max_r_log <- max(raastof_all$m3_per_km2_lg, na.rm = TRUE)
-min_r     <- min(raastof_all$m3_per_km2,    na.rm = TRUE)
-min_r_log <- min(raastof_all$m3_per_km2_lg, na.rm = TRUE)
 
-area_grid <- as.numeric(st_area(grid_sf))[1]
 
 raastof_cells <- st_intersection(raastof_all, grid_sf) %>%
-  mutate(piece_area = as.numeric(st_area(.))) %>%
   st_drop_geometry() %>%
-  group_by(id) %>%
-  summarise(value = sum(m3_per_km2 * piece_area) / area_grid, .groups = "drop") %>%  # lineær celle-intensitet
-  mutate(value_lg      = log10(value + 1),                # log AF celle-intensiteten
+  mutate(value =m3_per_km2,
+         value_lg      = log10(value + 1),                # log AF celle-intensiteten
          value_norm    = value    / max_r,                # min=0 -> = (value-0)/(max-0)
          value_norm_lg = value_lg / max_r_log)            # max_r_log = log10(max_r + 1)
 
@@ -107,11 +104,20 @@ par(mfrow = c(1,2))
 plot(raastof_rast)
 plot(raastof_rast_lg_norm)
 
-terra::writeRaster(raastof_rast,
-                   file.path(PATHS$output_pressure_tif, "restriktive_omraader", "raastof_norm.tif"), overwrite = TRUE)
+### Tilføj decay
+raastof_rast_decay <- decay_focal(raastof_rast,max_dist)
 
-terra::writeRaster(raastof_rast_lg_norm,
-                   file.path(PATHS$output_pressure_tif, "restriktive_omraader", "raastof_log_norm.tif"), overwrite = TRUE)
+raastof_rast_lg_norm_decay <- decay_focal(raastof_rast_lg_norm, max_dist)
+
+plot(raastof_rast_decay)
+plot(raastof_rast_lg_norm_decay)
+
+
+terra::writeRaster(raastof_rast_decay,
+                   file.path(PATHS$output_pressure_tif, "restriktive_omraader", "raastof_norm_decay.tif"), overwrite = TRUE)
+
+terra::writeRaster(raastof_rast_lg_norm_decay,
+                   file.path(PATHS$output_pressure_tif, "restriktive_omraader", "raastof_log_norm_decay.tif"), overwrite = TRUE)
 
 ## 4.1  Plotting for bilag - ikke log transformeret ──────────────────────────
 raastof_sf <- raastof_rast %>%

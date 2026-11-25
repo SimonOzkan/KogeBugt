@@ -2,6 +2,8 @@
 source("scripts/00_setup.R")
 PATHS <- set_project_paths()
 
+
+max_dist <-3.2*10^3
 # ── Hent Holmene fra WFS ───────────────────────────────────────────────────
 bbox_wgs84 <- st_bbox(st_transform(assessment_area_dissolved, crs = 4326))
 
@@ -29,47 +31,40 @@ holmene <- havplan %>%
   mutate(navn = "Holmene")
 
 # ── Intersection med grid ──────────────────────────────────────────────────
-holmene_grid <- st_intersection(grid_sf, holmene) %>%
-  mutate(holmene_area = as.numeric(st_area(.))) 
-# Check for intersection
-holmene_check <- holmene_grid %>%
-  st_drop_geometry() %>%
-  group_by(id) %>%
-  summarise(holmene_area_sum = sum(holmene_area))
+## sf til raster
+# Celler som rør = 1, øvrige celler i området = 0, udenfor = NA
+sf_til_rast <- function(x) {
+  x %>%
+    terra::vect() %>%
+    terra::rasterize(grid_raster, field = 1, touches = TRUE, background = 0) %>%
+    terra::mask(grid_raster)
+}
 
-# ── Beregn fraktion per grid-celle ────────────────────────────────
-holmene_frac <- grid_sf %>%                       # start fra HELE grid
-  left_join(holmene_check, by = "id") %>%       # join arealerne på
-  mutate(value = tidyr::replace_na(holmene_area_sum,0),
-    value = as.numeric(value) / as.numeric(area_grid)
-  ) %>%
-  st_make_valid()
+holmene_rast <- sf_til_rast(holmene)
+plot(holmene_rast)
 
+holmene_decay <- decay_focal(holmene_rast, max_dist)
+plot(holmene_decay)
 
-# ── Lav raster ────────────────────────────────────────────────────
-r_holmene <- terra::rasterize(
-  terra::vect(holmene_frac),
-  grid_raster,
-  field      = "value",
-  fun        = "max",
-  background = NA        # NA = uden for grid, 0 = i grid uden Holmene
-)
-
-plot(r_holmene)
-
-# Gem som tif
 terra::writeRaster(
-  r_holmene,
-  filename  = file.path(PATHS$output_pressure_tif,"anlaeg" ,"Holmene_frac.tif"),
+  holmene_decay,
+  filename  = file.path(PATHS$output_pressure_tif, "iei","holmene_decay.tif"),
   overwrite = TRUE
 )
 
+
 # ── Plot til bilag ────────────────
+
+holmene_sf <- holmene_rast %>%
+  terra::as.polygons(dissolve = FALSE) %>%
+  st_as_sf() %>%
+  st_make_valid() %>%
+  rename("value" = "layer")
 
 
 map_holmene <- ggplot() +
   geom_spatraster_rgb(data = tiles, maxcell = 5e6) + #baggrund: relief
-  geom_sf(data = holmene_frac, aes(fill = value), color = NA) +
+  geom_sf(data = holmene_sf, aes(fill = value), color = NA) +
   color_viridis+
   boundary+
   theme_minimal()+
@@ -82,5 +77,5 @@ map_holmene
 
 # ── Gem plot ───────────────────────────────────────────────────────────────
 gem_trim(map_holmene,
-         file.path(PATHS$output_pressure_png, "anlaeg\\holmene.png"),
+         file.path(PATHS$output_pressure_png, "iei","holmene.png"),
          dpi = 360, width_cm = 18)

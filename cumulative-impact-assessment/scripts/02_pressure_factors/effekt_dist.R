@@ -30,6 +30,8 @@ effekt_distance <- tribble(
   "Military areas",                                               7.5,    13.4,   50,   0,   15.3,   20,
   "Marine ports: industrial",                                     5,      10.1,   50,   0,   14.0,   14,
   "Marine ports and marinas: recreational",                       3,       5.6,   50,   0,   10.9,   20,
-  "Mussel dredging",                                              1,       1.2,   10,   0,    2.6,   18
+  "Mussel dredging",                                              1,       1.2,   10,   0,    2.6,   18,
+  "Holmene",                                                      1,       3.2,   25,   0,    7.5,   20, #anvender samme som bridges og coastal construction
+  "Kontek elektrode",                                             NA,       1,   NA,   NA,    NA,   NA # klorid og spænding, antager klorid er den primære bekymring (Vurdering af Simon)
 )
 
