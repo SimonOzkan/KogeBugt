@@ -13,6 +13,34 @@ list_press <- read_csv(file.path(PATHS$input_sensitivity,"list_stressors.csv"))
 SS_all_090120 <-read_csv(file.path(PATHS$input_sensitivity,"SS_all_090120.csv"))
 
 
+### Transpose af sensitivty score dataframe til brug i tikta
+
+
+
+n <- SS_all_090120$...1
+
+
+SS_all_090120_T <- as.data.frame(t(SS_all_090120[,-1]))
+colnames(SS_all_090120_T) <- n
+
+SS_all_090120_T$myfactor <- factor(row.names(SS_all_090120_T)) 
+
+
+SS_T <- SS_all_090120_T %>%
+  relocate("myfactor", .before = polnut_din_rescaled )
+
+
+names_eco <- SS_T$myfactor
+
+
+names_pressures <- SS_T[0,]
+
+
+# Rename pressures og ecosys så det matcher MSFD i tikta navngivning
+
+
+
+
 ##### Renaming af alle presfaktorer, så navnene matcher sensitivity scores ##########
 
 # nutrient 
@@ -23,7 +51,7 @@ list_press_nut <- list_press %>%
   filter(ValueField %in% c("DIN","DIP"))
 
 
-ecocomb_name_hab <- ecocomb_name_hab %>%
+list_press_nut <- list_press_nut %>%
   mutate(new_names = case_when(
     ValueField == "DIN" ~ "vinter_DIN_kernel_norm",
     ValueField == "DIP"   ~ "vinter_DIP_kernel_norm",
@@ -31,10 +59,9 @@ ecocomb_name_hab <- ecocomb_name_hab %>%
   ))
 
 
-### 
+### Industri, energi og infrastruktur
 
-iei <- list.files(file.path(PATHS$output_pressure_tif, "anlaeg")) 
-kabler <- list.files(file.path(PATHS$output_pressure_tif, "kabler"))
+iei <- list.files(file.path(PATHS$output_pressure_tif, "iei")) 
 
 
 list_press_iei <- list_press %>%
