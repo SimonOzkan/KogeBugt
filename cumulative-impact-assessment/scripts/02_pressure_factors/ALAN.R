@@ -74,6 +74,7 @@ alan_koge <- alan_mn %>%
   terra::project(grid_raster, method = "bilinear") %>%
   terra::mask(grid_raster)
 
+
 alan_norm <- alan_koge / ref_alan
 alan_log_norm <- log10(alan_koge+1) / ref_alan_lg
 par(mfrow = c(1,1))
@@ -81,6 +82,9 @@ par(mfrow = c(1,1))
 plot(alan_norm)
 plot(alan_log_norm)
 
+
+
+plot(is.na(alan_koge)) # Tjek inden fill_na at den ikke udfylder NA på hav hvor det skal være NA
 
 ALAN_lg_fill <- fill_na(alan_log_norm, grid_raster, w = 3)
 

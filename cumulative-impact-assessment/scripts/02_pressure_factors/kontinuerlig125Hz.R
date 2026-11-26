@@ -47,7 +47,7 @@ stoj_kont_koge_fill <- fill_na(stoj_kont_koge, grid_raster, w = 3)
 plot(stoj_kont_koge_fill)
 
 terra::writeRaster(stoj_kont_koge_fill,
-                   file.path(PATHS$output_pressure_tif,"lyd_energi" ,"stoj_kontinuerlig.tif"),
+                   file.path(PATHS$output_pressure_tif,"noise" ,"stoj_kontinuerlig.tif"),
                    overwrite = TRUE)
 
 
@@ -77,7 +77,7 @@ map_stoj_kont
 
 
 gem_trim(map_stoj_kont,
-         file.path(PATHS$output_pressure_png, "lyd_energi\\stoj_kontinuerlig.png"),
+         file.path(PATHS$output_pressure_png, "noise","stoj_kontinuerlig.png"),
          dpi = 360, width_cm = 18)
 
 
