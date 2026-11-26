@@ -50,9 +50,9 @@ ship_type_folders <- list(
 
 # Funktionelle grupper
 functional_groups <- list(
-  Industri_andre = c("cargo", "tanker", "passenger", "highspeed", "dredging","military","andre","service","tug","ukendt","sailing", "pleasure"),
-  Rekreativ    = c("sailing", "pleasure"),
-  Fiskeri    = c("fishing")
+  Industri_andre = c("cargo", "tanker", "passenger", "highspeed", "dredging","military","andre","service","tug","ukendt","fishing"),
+  Rekreativ    = c("sailing", "pleasure")
+  #Fiskeri    = c("fishing")
   #Andre = c("military","andre","service","tug","ukendt")
 )
 
@@ -89,7 +89,6 @@ for (type_name in names(ship_type_folders)) {
     ship_type_folders[[type_name]], years_to_use
   )
 }
-ship_type_rasters$fishing
 
 
 ## ------------------------------------------------------------------
@@ -134,22 +133,22 @@ normalize_log_fuldt <- function(r_full, grid_raster) {
   log_koge_fill <- fill_na(log_koge, grid_raster, w = 3)
   
   terra::clamp((log_koge_fill - mn) / (mx - mn), 0, 1)             # normalisér med FULDT min/max
+  
+
 }
 
 group_rasters_norm <- lapply(group_rasters, normalize_log_fuldt, grid_raster)
+
+par(mfrow = c(1,1))
+plot(group_rasters_norm$Industri_andre)
 plot(group_rasters_norm$Rekreativ)
+plot(group_rasters_norm$Fiskeri)
 
 ## ------------------------------------------------------------------
 ## Gem rastere
 ## ------------------------------------------------------------------
 
 for (group_name in names(group_rasters_norm)) {
-  
-  terra::writeRaster(
-    group_rasters[[group_name]],
-    filename  = file.path(PATHS$output_pressure_tif,"skibsfart", paste0("\\shipping_", group_name, "_raw.tif")),
-    overwrite = TRUE
-  )
   
   terra::writeRaster(
     group_rasters_norm[[group_name]],
@@ -163,12 +162,6 @@ for (group_name in names(group_rasters_norm)) {
 ############### Plotting for bilag ################
 
 
-group_titles <- list(
-  Industri_andre = "Skibstrafik (Industri)",
-  Rekreativt    = "Skibstrafik (Rekreativt)",
-  Fiskeri    = "Skibstrafik (Fiskeri)"
-  #Andre   = "Skibstrafik (Andre)"
-)
 
 for (group_name in names(group_rasters_norm)) {
   

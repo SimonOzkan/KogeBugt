@@ -98,9 +98,9 @@ plot(olie_norm)
 ## 7. Gem rastere
 ## ------------------------------------------------------------------
 
-terra::writeRaster(olie_rast, file.path(PATHS$output_pressure_tif, "miljøfremmede","oliespild_oil_per_km2.tif"),
+terra::writeRaster(olie_rast, file.path(PATHS$output_pressure_tif, "kemisk_forurening","oliespild_oil_per_km2.tif"),
                    overwrite = TRUE)
-terra::writeRaster(olie_norm, file.path(PATHS$output_pressure_tif, "miljøfremmede","oliespild_norm.tif"),
+terra::writeRaster(olie_norm, file.path(PATHS$output_pressure_tif, "kemisk_forurening","oliespild_norm.tif"),
                    overwrite = TRUE)
 
 
@@ -128,6 +128,6 @@ map_olie
 
 
 gem_trim(map_olie,
-         file.path(PATHS$output_pressure_png, "miljøfremmede", "oliespild.png"),
+         file.path(PATHS$output_pressure_png, "kemisk_forurening", "oliespild.png"),
          dpi = 360, width_cm = 18)
 

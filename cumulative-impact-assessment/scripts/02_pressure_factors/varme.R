@@ -32,11 +32,6 @@ varme_250 <- terra::project(varme, grid_raster, method = "bilinear")
 
 varme_koge <- fill_na(varme_250, grid_raster, w = 3)
 
-## ------------------------------------------------------------------
-## 4. Re-normalisér 0-1 inden for området
-## ------------------------------------------------------------------
-# scale_linear bruger nu kun celler i Køge Bugt
-
 names(varme_koge) <- "value"
 
 plot(varme_koge)
