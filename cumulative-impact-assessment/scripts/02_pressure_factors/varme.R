@@ -36,7 +36,7 @@ names(varme_koge) <- "value"
 
 plot(varme_koge)
 terra::writeRaster(varme_koge,
-                   file.path(PATHS$output_pressure_tif, "varme_tilførelse.tif"),
+                   file.path(PATHS$output_pressure_tif,"lyd_energi","varme_tilførelse.tif"),
                    overwrite = TRUE)
 
 
@@ -64,5 +64,5 @@ map_varme
 
 
 gem_trim(map_varme,
-         file.path(PATHS$output_pressure_png, "varme_tilførelse.png"),
+         file.path(PATHS$output_pressure_png,"lyd_energi" ,"varme_tilførelse.png"),
          dpi = 360, width_cm = 18)

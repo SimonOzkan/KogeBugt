@@ -38,13 +38,6 @@ fuglejagt_250 <- terra::project(fuglejagt, grid_raster, method = "bilinear")
 
 fuglejagt_koge <- fill_na(fuglejagt_250, grid_raster, w = 3)
 
-
-## ------------------------------------------------------------------
-## 4. Re-normalisér 0-1 inden for området
-## ------------------------------------------------------------------
-# scale_linear bruger nu kun celler i Køge Bugt (fordi vi har maskeret først).
-
-
 names(fuglejagt_koge) <- "value"
 
 plot(fuglejagt_koge)
