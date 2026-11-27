@@ -13,6 +13,22 @@ list_press <- read_csv(file.path(PATHS$input_sensitivity,"list_stressors.csv"))
 SS_all_090120 <-read_csv(file.path(PATHS$input_sensitivity,"SS_all_090120.csv"))
 
 
+
+
+
+
+
+
+SS_all_090120_T <- as.data.frame(t(SS_all_090120[,-1]))
+colnames(SS_all_090120_T) <- n
+ 
+SS_all_090120_T$myfactor <- factor(row.names(SS_all_090120_T)) 
+ 
+SS_T <- SS_all_090120_T %>%
+  relocate("myfactor", .before = polnut_din_rescaled )
+
+names_eco <- SS_T$myfactor
+names_pressures <- SS_T[0,]
 ##### Renaming af alle Økosystemkomponenter, så navnene matcher sensitivity scores ##########
 
 

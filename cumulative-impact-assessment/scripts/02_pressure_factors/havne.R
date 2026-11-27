@@ -146,12 +146,6 @@ lystbaad_sf <- lystbaad %>%
   st_transform(crs = target_crs)
 
 
-tmpl_ext <- terra::extend(grid_raster, ceiling(max_dist_lystbaad / res(grid_raster)[1]) + 1)
-grid_raster_ext <- terra::extend(grid_raster_ext, grid_raster_ext*(grid_raster_ext*1.5))
-
-plot(tmpl_ext)
-plot(grid_raster, col = "red", add = TRUE)
-
 lyst_rast <- terra::rasterize(
   terra::vect(lystbaad_sf),
   tmpl_ext,
@@ -164,9 +158,15 @@ plot(lyst_rast)
 
 lyst_rast_decay <- decay_focal(lyst_rast, max_dist_lystbaad)
 
-plot(lyst_rast_decay)
+plot(lyst_rast_decay) 
 
-terra::writeRaster(lyst_rast_decay,
+lyst_rast_decay_masked <- lyst_rast_decay %>%
+  terra::crop(grid_raster) %>%
+  terra::mask(grid_raster)
+
+plot(lyst_rast_decay_masked)
+
+terra::writeRaster(lyst_rast_decay_masked,
                    file.path(PATHS$output_pressure_tif, "iei", "havne_lystbaad_decay.tif"),
                    overwrite = TRUE)
 

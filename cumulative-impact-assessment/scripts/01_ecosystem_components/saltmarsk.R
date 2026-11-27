@@ -22,7 +22,7 @@ saltmarskes_area <- saltmarskes_intersect %>%
   group_by(id) %>%
   summarise(area_saltmarskes_sum = sum(area_saltmarskes, na.rm = TRUE), .groups = "drop") 
 
-saltmarskes_genopretning <- left_join(grid_sf, saltmarskes_area) %>%
+saltmarskes <- left_join(grid_sf, saltmarskes_area) %>%
   mutate(value =area_saltmarskes_sum/area_grid) %>%
   mutate(value = ifelse(is.na(value),0,value)) %>%
   st_make_valid()
@@ -30,7 +30,7 @@ saltmarskes_genopretning <- left_join(grid_sf, saltmarskes_area) %>%
 
 # Konverter til raster
 saltmarskes_rast <- terra::rasterize(
-  terra::vect(saltmarskes_genopretning),
+  terra::vect(saltmarskes),
   grid_raster,
   field    = "value",
   fun      = "max",      # der bør ikke være overlap efter union, derfor tages max
@@ -78,7 +78,7 @@ map_saltmarskes <- ggplot() +
 map_saltmarskes
 
 ggsave(plot = map_saltmarskes,
-       filename = file.path(PATHS$output_ecosystem_png,"vigtige_habs", "\\saltmarskes.png"),
+       filename = file.path(PATHS$output_ecosystem_png,"vigtige_habs", "saltmarskes.png"),
        bg = NULL,
        height = 18,
        width = 18,
